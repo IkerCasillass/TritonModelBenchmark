@@ -1,0 +1,94 @@
+{
+  "experiment": {
+    "name": "TritonModelBenchmark",
+    "description": "Benchmark LLMs on PyTorch -> Triton kernel translation via TritonBench-T on Modal.",
+    "repo": "https://github.com/IkerCasillass/TritonModelBenchmark",
+    "commit": "<fill-in-after-first-commit>"
+  },
+  "benchmark": {
+    "name": "TritonBench-T",
+    "upstream_repo": "https://github.com/thunlp/TritonBench",
+    "upstream_commit": "<pin-SHA-for-strict-reproducibility>",
+    "datasets": ["simp", "comp"],
+    "n_items_simp": 166,
+    "phases": ["call_acc", "exe_acc", "efficiency"]
+  },
+  "hardware": {
+    "provider": "Modal",
+    "eval_gpu": "NVIDIA T4",
+    "eval_gpu_vram_gb": 16,
+    "eval_gpu_compute_capability": 7.5,
+    "generation_cpu_vcpu": 4,
+    "phase3_virt_mem_limit_gib": 12,
+    "phase3_kernel_timeout_s": 60
+  },
+  "container": {
+    "base_image": "nvidia/cuda:12.4.1-devel-ubuntu22.04",
+    "os": "Ubuntu 22.04",
+    "python": "3.12"
+  },
+  "libraries": {
+    "torch": "2.5.1",
+    "triton": "3.1.0",
+    "numpy": "<2",
+    "openai": ">=1.50",
+    "tqdm": "4.66.5",
+    "psutil": ">=5.9",
+    "modal_client": ">=0.66"
+  },
+  "inference": {
+    "provider": "OpenRouter",
+    "base_url": "https://openrouter.ai/api/v1",
+    "temperature": 0,
+    "max_tokens": 8192,
+    "grammar": null,
+    "structured_output": false,
+    "shots": "zero-shot",
+    "agentic_loop": false,
+    "post_processing": "fenced code-block extraction only",
+    "concurrency": 8,
+    "max_retries": 2,
+    "retry_base_delay_s": 4.0,
+    "retry_on": ["429", "503", "529", "empty_response"]
+  },
+  "prompt": {
+    "system": "You are an expert in Triton programming, capable of writing Triton kernels and wrapper functions based on functional descriptions and function parameters. The wrapper function must fully match the provided function signature. Output a single, self-contained Python module containing: (a) the necessary imports (torch, triton, triton.language as tl), (b) the Triton kernel(s), and (c) the wrapper function that the description specifies. Wrap the entire module in one ```python ... ``` fenced code block. Do NOT include any test code or example calls — tests will be appended separately.",
+    "user_template": "{instruction}\n\n{input}"
+  },
+  "models": [
+    {
+      "role": "frontier-1",
+      "slug": "anthropic/claude-sonnet-4-5",
+      "vendor": "Anthropic",
+      "version": "claude-sonnet-4-5",
+      "parameters": "undisclosed"
+    },
+    {
+      "role": "frontier-2",
+      "slug": "<fill-in>",
+      "vendor": "<fill-in>",
+      "version": "<fill-in>",
+      "parameters": "<fill-in>"
+    },
+    {
+      "role": "small",
+      "slug": "<fill-in>",
+      "vendor": "<fill-in>",
+      "version": "<fill-in>",
+      "parameters": "<fill-in>"
+    }
+  ],
+  "metrics_reported": [
+    "phase1_call_acc.rate",
+    "phase2_exec_acc.rate",
+    "phase2_exec_acc.rate_among_phase1",
+    "phase3_efficiency.mean_speedup",
+    "phase3_efficiency.geomean_speedup",
+    "phase3_efficiency.median_speedup",
+    "phase3_efficiency.pct_faster_than_pytorch",
+    "generation.latency_s.p50",
+    "generation.latency_s.p95",
+    "generation.tokens.total_completion",
+    "generation.failures.by_reason"
+  ]
+}
