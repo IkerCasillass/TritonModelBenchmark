@@ -71,6 +71,11 @@ LLM_SECRET_NAME = os.environ.get("TRITONBENCH_LLM_SECRET", "tritonbench-llm")
 MAX_RETRIES = 2
 RETRY_BASE_DELAY = 4.0   # seconds; doubles each attempt (exponential backoff)
 
+# Per-kernel subprocess resource limits — shared across Phase 1 / Phase 2
+# pre-probing and Phase 3 benchmarking.
+KERNEL_TIMEOUT  = 60               # wall-clock seconds before killing a subprocess
+VIRT_MEM_BYTES  = 12 * 1024 ** 3  # 12 GiB virtual-address ceiling
+
 # --------------------------------------------------------------------------- #
 # Image
 # --------------------------------------------------------------------------- #
@@ -162,6 +167,102 @@ def _build_messages(item: dict) -> list[dict]:
         {"role": "system", "content": PROMPT_HEADER},
         {"role": "user", "content": user},
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Kernel failure classification (Phase 1 / Phase 2 observability)
+# --------------------------------------------------------------------------- #
+
+# Categories that indicate a hardware constraint rather than a code bug.
+# Used to set `is_hardware_failure` in the failure dataset.
+HARDWARE_FAILURE_TYPES: frozenset[str] = frozenset({
+    "shared_mem_overflow",
+    "register_overflow",
+    "arch_unsupported",
+    "dtype_unsupported",
+    "oom",
+    "illegal_memory_access",
+})
+
+
+def _classify_kernel_failure(stderr: str) -> str:
+    """Classify Triton/CUDA compilation or execution stderr into a failure category.
+
+    Distinct from _classify_failure, which handles LLM API errors.
+
+    Hardware checks run before code/logic checks because PTX error strings
+    sometimes contain Python exception names (e.g. RuntimeError) that would
+    otherwise match the code_error bucket.
+
+    Patterns validated against Triton 3.1.0 / CUDA 12.4 error output.
+    """
+    s = stderr.lower()
+
+    # --- hardware-attributable -------------------------------------------
+    if "out of resource" in s and "shared memory" in s:
+        return "shared_mem_overflow"
+    if "out of resource" in s and "regist" in s:
+        # "regist" matches both "register" and "registers" in PTX compiler output.
+        return "register_overflow"
+    if "no kernel image is available" in s:
+        # CUDA runtime: binary not compiled for this device's compute capability.
+        return "arch_unsupported"
+    if ("not supported" in s or "unsupported" in s) and any(
+        t in s for t in ("bf16", "fp8", "float8")
+    ):
+        # Ambiguous: "not supported" appears in many error paths; requiring an
+        # explicit dtype token (bf16/fp8/float8) narrows to GPU dtype limits.
+        return "dtype_unsupported"
+    if "cuda out of memory" in s or "out of memory" in s:
+        return "oom"
+    if "illegal memory access" in s:
+        return "illegal_memory_access"
+
+    # --- code / logic ----------------------------------------------------
+    if "block_size" in s or "must be a power of 2" in s:
+        return "invalid_block_size"
+    if any(t in s for t in ("allclose", "mismatch", "incorrect", "not equal")):
+        return "numerical_mismatch"
+    if any(t in s for t in ("syntaxerror", "nameerror", "importerror")):
+        return "code_error"
+
+    return "other_runtime"
+
+
+def _set_mem_limit() -> None:
+    """Pre-exec hook: cap virtual address space to VIRT_MEM_BYTES.
+
+    Prevents a runaway kernel subprocess from OOM-killing the parent container.
+    Best-effort — only effective on Linux; silently no-ops elsewhere.
+    """
+    import resource as _resource
+    try:
+        _resource.setrlimit(_resource.RLIMIT_AS, (VIRT_MEM_BYTES, VIRT_MEM_BYTES))
+    except Exception:
+        pass
+
+
+def _probe_kernel_file(path: Path) -> tuple[int, str]:
+    """Run *path* in an isolated subprocess; return (returncode, stderr).
+
+    Mirrors the Phase 3 isolation pattern: KERNEL_TIMEOUT wall-clock limit and
+    _set_mem_limit virtual-memory ceiling.  Called before Phase 1 / Phase 2
+    upstream scripts run so stderr is captured before failing files are deleted.
+    stdout is discarded — only stderr carries failure information.
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(path)],
+            capture_output=True,
+            text=True,
+            timeout=KERNEL_TIMEOUT,
+            preexec_fn=_set_mem_limit,
+        )
+        return proc.returncode, proc.stderr
+    except subprocess.TimeoutExpired:
+        return -1, f"TimeoutExpired: kernel did not complete within {KERNEL_TIMEOUT}s"
+    except Exception as exc:
+        return -1, str(exc)
 
 
 def _parse_reset_delay(exc_str: str, fallback: float) -> float:
@@ -646,7 +747,49 @@ def evaluate(
     import call_acc  # noqa: E402
     import exe_acc   # noqa: E402
 
+    import tempfile
+    import torch as _torch
+
+    _gpu_props   = _torch.cuda.get_device_properties(0)
+    _compute_cap = f"{_gpu_props.major}.{_gpu_props.minor}"
+    _gpu_name    = _torch.cuda.get_device_name(0)
+    failure_records: list[dict] = []   # accumulated across Phase 1 and Phase 2
+
     timings: dict = {}
+
+    # ---- Phase 1 pre-probe: capture stderr before call_acc deletes failures ----
+    #
+    # call_acc.get_codes_for_test() returns the exact (code, test, filename)
+    # triples that call_4file uses internally.  Writing code+test to a temp file
+    # and running it in an isolated subprocess replicates Phase 1's acceptance
+    # test, so the filenames in phase1_probe map one-to-one to call_acc_dir.
+    phase1_probe:  dict[str, tuple[int, str]] = {}  # filename -> (returncode, stderr)
+    _probe_codes:  list[str] = []  # raw generated code (no test appended), for kernel_code field
+    _probe_fnames: list[str] = []  # TritonBench filenames, same order as predictions
+
+    try:
+        _pcodes, _ptests, _pfiles = call_acc.get_codes_for_test(str(pred_full))
+        _probe_codes  = list(_pcodes)
+        _probe_fnames = list(_pfiles)
+        print(
+            f"\nphase1 pre-probe: running {len(_pfiles)} kernels in isolated subprocesses"
+            f" (timeout={KERNEL_TIMEOUT}s each) ...",
+            flush=True,
+        )
+        with tempfile.TemporaryDirectory() as _td:
+            _td_path = Path(_td)
+            for _i, (_code, _test, _fname) in enumerate(zip(_pcodes, _ptests, _pfiles), 1):
+                _fpath = _td_path / _fname
+                _fpath.write_text(_code + "\n" + "#" * 146 + "\n" + _test)
+                _rc, _se = _probe_kernel_file(_fpath)
+                phase1_probe[_fname] = (_rc, _se)
+                if _i % 20 == 0 or _i == len(_pfiles):
+                    _nfail = sum(1 for r, _ in phase1_probe.values() if r != 0)
+                    print(f"  pre-probe progress: {_i}/{len(_pfiles)}  failures so far: {_nfail}", flush=True)
+        _pre_fail = sum(1 for _rc, _ in phase1_probe.values() if _rc != 0)
+        print(f"phase1 pre-probe complete: {_pre_fail}/{len(phase1_probe)} predicted failures", flush=True)
+    except Exception as _exc:
+        print(f"warning: phase1 pre-probe skipped ({_exc})", flush=True)
 
     # ---- Phase 1: call accuracy ------------------------------------------------
     print("\n" + "=" * 70 + "\n=== Phase 1: call accuracy ===\n" + "=" * 70, flush=True)
@@ -655,6 +798,30 @@ def evaluate(
     call_survivors = sorted(p.name for p in call_acc_dir.glob("*.py"))
     timings["phase1_call_acc_s"] = round(time.perf_counter() - _t, 1)
     print(f"\ncall_acc survivors: {len(call_survivors)} / {total}", flush=True)
+
+    # Record Phase 1 failures.  phase1_probe and call_acc use the same filenames
+    # (both from get_codes_for_test), so set-difference gives an exact mapping.
+    if phase1_probe:
+        _call_survivor_set = set(call_survivors)
+        for _fname, _code in zip(_probe_fnames, _probe_codes):
+            if _fname not in _call_survivor_set:
+                _rc, _se = phase1_probe.get(_fname, (-1, ""))
+                _ftype = _classify_kernel_failure(_se)
+                failure_records.append({
+                    "kernel_id":          _fname,
+                    "gpu":                _gpu_name,
+                    "compute_cap":        _compute_cap,
+                    "phase_failed":       1,
+                    "failure_type":       _ftype,
+                    "is_hardware_failure": _ftype in HARDWARE_FAILURE_TYPES,
+                    "stderr_excerpt":     _se[:500].replace("\n", " "),
+                    "kernel_code":        _code,
+                })
+        _hw = sum(1 for r in failure_records if r["phase_failed"] == 1 and r["is_hardware_failure"])
+        print(
+            f"phase1 failures recorded: {len(failure_records)} total, {_hw} hardware-attributable",
+            flush=True,
+        )
 
     # ---- Phase 2: execution accuracy -------------------------------------------
     print("\n" + "=" * 70 + "\n=== Phase 2: execution accuracy ===\n" + "=" * 70, flush=True)
@@ -735,24 +902,7 @@ def evaluate(
         # one leaks GPU/CPU memory it OOM-kills the entire pool (exit 137) and
         # we lose every result.  Running one-at-a-time with a hard timeout and
         # a per-process memory ceiling lets bad kernels be skipped cleanly.
-        #
-        # Memory ceiling: resource.RLIMIT_AS caps virtual address space.
-        # 12 GiB leaves headroom for the T4's 16 GiB VRAM + system overhead.
-        # Each subprocess also gets a 3-minute wall-clock timeout.
-        KERNEL_TIMEOUT = 60             # seconds per kernel — hung kernels are killed faster
-        VIRT_MEM_BYTES = 12 * 1024 ** 3  # 12 GiB virtual memory ceiling
-
-        def _set_mem_limit():
-            """Pre-exec hook: cap virtual memory so a runaway kernel cannot
-            OOM the parent container.  Best-effort — only works on Linux."""
-            import resource as _resource
-            try:
-                _resource.setrlimit(
-                    _resource.RLIMIT_AS,
-                    (VIRT_MEM_BYTES, VIRT_MEM_BYTES),
-                )
-            except Exception:
-                pass
+        # KERNEL_TIMEOUT, VIRT_MEM_BYTES, and _set_mem_limit are module-level.
 
         perf_scripts = perf_scripts_all
         print(
