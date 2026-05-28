@@ -1056,6 +1056,24 @@ def evaluate(
 
     speedup_stats = _speedup_stats(per_kernel_speedups)
 
+    # ---- failure dataset -------------------------------------------------------
+    by_type: dict[str, int] = {}
+    for _r in failure_records:
+        by_type[_r["failure_type"]] = by_type.get(_r["failure_type"], 0) + 1
+    hw_failures   = sum(1 for _r in failure_records if _r["is_hardware_failure"])
+    failure_analysis = {
+        "total_failures":    len(failure_records),
+        "hardware_failures": hw_failures,
+        "code_failures":     len(failure_records) - hw_failures,
+        "by_type":           by_type,
+    }
+
+    dataset_path = out_dir / "failure_dataset.jsonl"
+    with dataset_path.open("w") as _f:
+        for _r in failure_records:
+            _f.write(json.dumps(_r, ensure_ascii=False) + "\n")
+    print(f"wrote failure dataset -> {dataset_path} ({len(failure_records)} records)", flush=True)
+
     summary = {
         "model": model,
         "total_predictions": total,
@@ -1080,6 +1098,7 @@ def evaluate(
         },
         "timing_s": timings,
         "generation": generation,
+        "failure_analysis": failure_analysis,
         "artifacts_volume": VOLUME_NAME,
         "artifacts_subdir": output_subdir,
     }
