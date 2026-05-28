@@ -823,6 +823,35 @@ def evaluate(
             flush=True,
         )
 
+    # ---- Phase 2 pre-probe: capture stderr before exe_acc deletes failures -----
+    #
+    # Files in call_acc_dir already contain code + "#"*146 + test (written by
+    # Phase 1).  Running them directly replicates what exe_acc does before the
+    # stdout comparison step, so any Triton compilation / runtime error shows up
+    # in stderr here.  Files that exit 0 but are later deleted by exe_acc failed
+    # because their stdout didn't match the golden reference — numerical_mismatch.
+    # filename -> (returncode, stderr, raw_kernel_code)
+    # raw_kernel_code is read here because exe_acc will delete failing files.
+    phase2_probe: dict[str, tuple[int, str, str]] = {}
+    if call_survivors:
+        print(
+            f"\nphase2 pre-probe: running {len(call_survivors)} kernels in isolated subprocesses"
+            f" (timeout={KERNEL_TIMEOUT}s each) ...",
+            flush=True,
+        )
+        for _i, _fname in enumerate(call_survivors, 1):
+            _fpath = call_acc_dir / _fname
+            # Strip the embedded test section to recover the raw generated code
+            # (Phase 1 wrote: code + "\n" + "#"*146 + "\n" + test).
+            _raw = _fpath.read_text().split("#" * 146)[0].rstrip("\n")
+            _rc, _se = _probe_kernel_file(_fpath)
+            phase2_probe[_fname] = (_rc, _se, _raw)
+            if _i % 20 == 0 or _i == len(call_survivors):
+                _nfail = sum(1 for r, _, __ in phase2_probe.values() if r != 0)
+                print(f"  pre-probe progress: {_i}/{len(call_survivors)}  failures so far: {_nfail}", flush=True)
+        _pre_fail2 = sum(1 for _rc, _, __ in phase2_probe.values() if _rc != 0)
+        print(f"phase2 pre-probe complete: {_pre_fail2}/{len(phase2_probe)} runtime failures", flush=True)
+
     # ---- Phase 2: execution accuracy -------------------------------------------
     print("\n" + "=" * 70 + "\n=== Phase 2: execution accuracy ===\n" + "=" * 70, flush=True)
     _t = time.perf_counter()
@@ -833,6 +862,39 @@ def evaluate(
     exec_survivors = sorted(p.name for p in call_acc_dir.glob("*.py"))
     timings["phase2_exec_acc_s"] = round(time.perf_counter() - _t, 1)
     print(f"\nexe_acc survivors: {len(exec_survivors)} / {total}", flush=True)
+
+    # Record Phase 2 failures: call_acc survivors absent from exec_survivors.
+    # Probe exit != 0  → Triton/runtime error; classify its stderr.
+    # Probe exit == 0  → ran fine in isolation but stdout differed from golden
+    #                    (numerical mismatch); no meaningful stderr to classify.
+    if phase2_probe:
+        _exec_survivor_set = set(exec_survivors)
+        _p2_start = len(failure_records)
+        for _fname in call_survivors:
+            if _fname not in _exec_survivor_set:
+                _rc, _se, _kernel_code = phase2_probe.get(_fname, (-1, "", ""))
+                if _rc == 0:
+                    # Passed bare execution; stdout differed from golden output.
+                    _ftype = "numerical_mismatch"
+                    _se    = ""
+                else:
+                    _ftype = _classify_kernel_failure(_se)
+                failure_records.append({
+                    "kernel_id":           _fname,
+                    "gpu":                 _gpu_name,
+                    "compute_cap":         _compute_cap,
+                    "phase_failed":        2,
+                    "failure_type":        _ftype,
+                    "is_hardware_failure": _ftype in HARDWARE_FAILURE_TYPES,
+                    "stderr_excerpt":      _se[:500].replace("\n", " "),
+                    "kernel_code":         _kernel_code,
+                })
+        _p2_records = failure_records[_p2_start:]
+        _hw2 = sum(1 for r in _p2_records if r["is_hardware_failure"])
+        print(
+            f"phase2 failures recorded: {len(_p2_records)} total, {_hw2} hardware-attributable",
+            flush=True,
+        )
 
     # ---- Phase 3: efficiency ---------------------------------------------------
     print("\n" + "=" * 70 + "\n=== Phase 3: efficiency ===\n" + "=" * 70, flush=True)
