@@ -190,15 +190,23 @@ def _classify_kernel_failure(stderr: str) -> str:
 
     Distinct from _classify_failure, which handles LLM API errors.
 
-    Hardware checks run before code/logic checks because PTX error strings
-    sometimes contain Python exception names (e.g. RuntimeError) that would
-    otherwise match the code_error bucket.
+    Ordering rule — most specific first, generic fallbacks last:
+      1. Hardware-attributable (PTX / CUDA runtime limits)
+      2. triton_api_misuse  — Triton 3.x API violations; checked before generic
+                              code errors because the error messages also contain
+                              Python exception names (ValueError, AttributeError)
+                              that would otherwise match code_error.
+      3. invalid_block_size — tightened to require an explicit constraint message,
+                              not a bare identifier match.
+      4. numerical_mismatch
+      5. code_error         — Python-level: SyntaxError / NameError / ImportError
+      6. other_runtime      — true fallback
 
     Patterns validated against Triton 3.1.0 / CUDA 12.4 error output.
     """
     s = stderr.lower()
 
-    # --- hardware-attributable -------------------------------------------
+    # --- 1. hardware-attributable ----------------------------------------
     if "out of resource" in s and "shared memory" in s:
         return "shared_mem_overflow"
     if "out of resource" in s and "regist" in s:
@@ -218,11 +226,35 @@ def _classify_kernel_failure(stderr: str) -> str:
     if "illegal memory access" in s:
         return "illegal_memory_access"
 
-    # --- code / logic ----------------------------------------------------
-    if "block_size" in s or "must be a power of 2" in s:
+    # --- 2. triton_api_misuse --------------------------------------------
+    if (
+        # tl.* called outside a @triton.jit context (e.g. as a type annotation);
+        # Triton raises ValueError with this exact message.
+        "did you forget to add @triton.jit" in s
+        # Same root cause — tl internals require _builder at compile time.
+        or "_builder argument must be provided" in s
+        # tl.extra.* namespace was removed in Triton 3.x.
+        or "tl.extra" in s
+        # tl.libdevice was removed in Triton 3.x (moved to tl.math / libdevice).
+        or ("libdevice" in s and ("attributeerror" in s or "has no attribute" in s))
+    ):
+        return "triton_api_misuse"
+
+    # --- 3. invalid_block_size -------------------------------------------
+    # Require an explicit constraint-violation message alongside the identifier.
+    # A bare "block_size" in stderr is just an identifier in a traceback frame
+    # and fires on unrelated errors (false positive observed in production data).
+    if "must be a power of 2" in s or (
+        ("block_size" in s or "block size" in s)
+        and any(t in s for t in ("too large", "exceeds", "expected a power"))
+    ):
         return "invalid_block_size"
+
+    # --- 4. numerical_mismatch -------------------------------------------
     if any(t in s for t in ("allclose", "mismatch", "incorrect", "not equal")):
         return "numerical_mismatch"
+
+    # --- 5. code_error ---------------------------------------------------
     if any(t in s for t in ("syntaxerror", "nameerror", "importerror")):
         return "code_error"
 
@@ -814,7 +846,7 @@ def evaluate(
                     "phase_failed":       1,
                     "failure_type":       _ftype,
                     "is_hardware_failure": _ftype in HARDWARE_FAILURE_TYPES,
-                    "stderr_excerpt":     _se[:500].replace("\n", " "),
+                    "stderr_excerpt":     _se[-2000:].replace("\n", " "),
                     "kernel_code":        _code,
                 })
         _hw = sum(1 for r in failure_records if r["phase_failed"] == 1 and r["is_hardware_failure"])
@@ -886,7 +918,7 @@ def evaluate(
                     "phase_failed":        2,
                     "failure_type":        _ftype,
                     "is_hardware_failure": _ftype in HARDWARE_FAILURE_TYPES,
-                    "stderr_excerpt":      _se[:500].replace("\n", " "),
+                    "stderr_excerpt":      _se[-2000:].replace("\n", " "),
                     "kernel_code":         _kernel_code,
                 })
         _p2_records = failure_records[_p2_start:]
