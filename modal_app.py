@@ -192,15 +192,15 @@ def _classify_kernel_failure(stderr: str) -> str:
 
     Ordering rule — most specific first, generic fallbacks last:
       1. Hardware-attributable (PTX / CUDA runtime limits)
-      2. triton_api_misuse  — Triton 3.x API violations; checked before generic
-                              code errors because the error messages also contain
-                              Python exception names (ValueError, AttributeError)
-                              that would otherwise match code_error.
-      3. invalid_block_size — tightened to require an explicit constraint message,
-                              not a bare identifier match.
-      4. numerical_mismatch
-      5. code_error         — Python-level: SyntaxError / NameError / ImportError
-      6. other_runtime      — true fallback
+      2. triton_api_misuse          — hallucinated or removed tl.* attributes
+      3. triton_unsupported_construct — valid Python that Triton's compiler rejects
+      4. triton_compilation_error   — catch-all for CompilationError (parent class;
+                                      must come after the more specific subclasses)
+      5. model_abdication           — wrapper asserts that explicitly refuse work
+      6. invalid_block_size         — tight pattern; bare identifier is not enough
+      7. numerical_mismatch
+      8. code_error                 — Python-level: SyntaxError / NameError / ImportError
+      9. other_runtime              — true fallback
 
     Patterns validated against Triton 3.1.0 / CUDA 12.4 error output.
     """
@@ -227,20 +227,45 @@ def _classify_kernel_failure(stderr: str) -> str:
         return "illegal_memory_access"
 
     # --- 2. triton_api_misuse --------------------------------------------
+    # Triton 3.x removed tl.libdevice (→ tl.math) and tl.extra entirely.
+    # Hallucinated attributes (tl.pow, tl.program, …) hit the same error path.
+    # The exact string Triton emits when JIT-visiting an unknown attribute is:
+    #   AttributeError: module 'triton.language' has no attribute '<name>'
+    # tl.math sub-attributes produce the analogous message for that submodule.
     if (
-        # tl.* called outside a @triton.jit context (e.g. as a type annotation);
-        # Triton raises ValueError with this exact message.
-        "did you forget to add @triton.jit" in s
+        # Covers triton.language, triton.language.math, triton.language.extra, etc.
+        # The closing quote is intentionally omitted so all tl.* submodules match.
+        "attributeerror: module 'triton.language" in s
+        # tl.* called outside @triton.jit (e.g. used as a type annotation).
+        or "did you forget to add @triton.jit" in s
         # Same root cause — tl internals require _builder at compile time.
         or "_builder argument must be provided" in s
-        # tl.extra.* namespace was removed in Triton 3.x.
-        or "tl.extra" in s
-        # tl.libdevice was removed in Triton 3.x (moved to tl.math / libdevice).
-        or ("libdevice" in s and ("attributeerror" in s or "has no attribute" in s))
     ):
         return "triton_api_misuse"
 
-    # --- 3. invalid_block_size -------------------------------------------
+    # --- 3. triton_unsupported_construct ---------------------------------
+    # Triton's compiler rejects syntactically valid Python it cannot lower:
+    # chained boolean operators, simultaneous comparisons, etc.
+    if "triton.compiler.errors.unsupportedlanguageconstruct" in s:
+        return "triton_unsupported_construct"
+
+    # --- 4. triton_compilation_error -------------------------------------
+    # Catch-all for CompilationError not covered above.  Checked AFTER
+    # UnsupportedLanguageConstruct (a subclass) so the specific category wins
+    # when both class names appear in the same traceback.
+    if "triton.compiler.errors.compilationerror" in s:
+        return "triton_compilation_error"
+
+    # --- 5. model_abdication ---------------------------------------------
+    # The LLM wrote a wrapper that explicitly asserts the test case isn't
+    # supported.  A bare AssertionError with no message stays other_runtime
+    # because there is no refusal text to match.
+    if "assertionerror" in s and any(
+        t in s for t in ("is supported", "not supported", "must be", "input must be")
+    ):
+        return "model_abdication"
+
+    # --- 6. invalid_block_size -------------------------------------------
     # Require an explicit constraint-violation message alongside the identifier.
     # A bare "block_size" in stderr is just an identifier in a traceback frame
     # and fires on unrelated errors (false positive observed in production data).
@@ -250,11 +275,11 @@ def _classify_kernel_failure(stderr: str) -> str:
     ):
         return "invalid_block_size"
 
-    # --- 4. numerical_mismatch -------------------------------------------
+    # --- 7. numerical_mismatch -------------------------------------------
     if any(t in s for t in ("allclose", "mismatch", "incorrect", "not equal")):
         return "numerical_mismatch"
 
-    # --- 5. code_error ---------------------------------------------------
+    # --- 8. code_error ---------------------------------------------------
     if any(t in s for t in ("syntaxerror", "nameerror", "importerror")):
         return "code_error"
 
