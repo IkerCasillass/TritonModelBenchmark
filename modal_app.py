@@ -350,7 +350,6 @@ _GOLD_SEP = "#" * 146
 BEHAVIOR_FAIL_SHARED_MEM = "fail_compile_shared_mem"
 BEHAVIOR_FAIL_DTYPE      = "fail_dtype_unsupported"
 BEHAVIOR_FAIL_BLOCK_SIZE = "fail_invalid_block_size"
-BEHAVIOR_RUNS_NO_TC      = "runs_no_tensorcore"
 BEHAVIOR_RUNS_NO_BF16    = "runs_no_bf16_speedup"
 
 # Behaviours that are hardware-attributable (used to set is_hardware_failure
@@ -445,11 +444,22 @@ def mutate_force_fp8(source: str) -> str | None:
 
 
 def mutate_force_bf16(source: str) -> str | None:
-    """Swap fp32 → bf16.  T4 runs bf16 but without Tensor-Core acceleration —
-    a performance mutation, validated against the fp32 baseline runtime."""
-    new = source.replace("tl.float32", "tl.bfloat16").replace(
-        "dtype=torch.float32", "dtype=torch.bfloat16"
-    )
+    """Swap fp32 → bf16 for **storage only** (input tensors), not in-kernel math.
+
+    Surgical by design.  An earlier version replaced every ``tl.float32`` too,
+    which bf16'd accumulators while ``tl.dot`` still output fp32 — producing a
+    Triton "loop-carried variable acc has initial type bf16 but is re-assigned to
+    fp32" error that fails on *any* arch (an arch-independent code artifact, not a
+    hardware signal).  Changing only ``dtype=torch.float32`` → ``torch.bfloat16``
+    in the wrapper/test makes the *inputs* bf16 while leaving fp32 accumulators
+    intact, which is also the realistic bf16 usage pattern (store bf16, accumulate
+    fp32).  bf16 loads/casts still emit ``.bf16`` PTX, so on pre-Ampere (T4 sm_75)
+    the kernel fails at ptxas ("requires .target sm_80") — a clean dtype/arch
+    hardware failure — while on Ampere+ it runs (the perf prediction).
+
+    Kernels with no ``dtype=torch.float32`` tensor allocation return None.
+    """
+    new = source.replace("dtype=torch.float32", "dtype=torch.bfloat16")
     return new if new != source else None
 
 
@@ -464,55 +474,17 @@ def mutate_non_pow2_block(source: str) -> str | None:
     return new + sep + test
 
 
-def mutate_tensor_core_misalign(source: str) -> str | None:
-    """For tl.dot kernels, nudge test-tensor dims off the 16-element TC grid.
-
-    Investigation (Triton 3.1): there is no in-kernel switch to disable Tensor
-    Cores for the common fp16/bf16 matmul.  ``tl.dot``'s ``input_precision`` /
-    ``allow_tf32`` only govern the TF32 path for *fp32* inputs — the docstring
-    states that "if the device does not have Tensor Cores or the inputs are not
-    of dtype f32, this option is ignored" — and on T4 (no TF32) they are a no-op
-    anyway.  So shape is the only lever.
-
-    We pad every test-tensor dim that is a multiple of 16 by **+8** (64→72,
-    128→136).  +8 (rather than +1 or −1) keeps %8 divisibility — which many
-    kernels assert or tile on — while still breaking the 16-wide WMMA tiling, so
-    it trips fewer shape guards.  Kernels that assert an *exact* dim (e.g.
-    ``assert d == 128``) still break; those rows are kept as diagnostic data.
-    Non-matmul kernels return None.
-    """
-    import re
-
-    if "tl.dot" not in source:
-        return None
-    code, sep, test = _split_gold(source)
-    if not test:
-        return None
-
-    def _pad_call(m: "re.Match") -> str:
-        # +8 on integer literals that are positive multiples of 16
-        return re.sub(
-            r"\d+",
-            lambda mm: (
-                str(int(mm.group(0)) + 8)
-                if int(mm.group(0)) > 0 and int(mm.group(0)) % 16 == 0
-                else mm.group(0)
-            ),
-            m.group(0),
-        )
-
-    # Match a single torch.<ctor>( ... ) call up to its first close-paren.
-    new_test = re.sub(
-        r"torch\.(?:randn|rand|empty|zeros|ones|full|arange)\([^)]*\)",
-        _pad_call,
-        test,
-    )
-    return code + sep + new_test if new_test != test else None
+# NOTE: a fifth mutation, `tensor_core_misalign`, was retired after the full
+# 184-kernel run (validated only 1/28 — 3.6%).  Triton masks ragged shapes so
+# Tensor Cores still partly engage, and `tl.dot`'s input_precision/allow_tf32
+# are fp32-only (no fp16/bf16 TC-disable switch), leaving shape as the only —
+# and too blunt — lever (most variants tripped exact-shape asserts → other_runtime).
+# Removed rather than kept as noise.  See PHASE2_DESIGN.md and git history.
 
 
 # Ordered registry: (name, fn, predicted_behavior, is_perf_mutation).
-# Order matches the five-mutation spec; failure mutations probe stderr,
-# performance mutations time the kernel against the fp32 baseline.
+# Failure mutations probe stderr; performance mutations time the kernel against
+# the fp32 baseline.
 MUTATORS: list[tuple] = [
     ("shared_mem_overflow",  mutate_shared_mem_overflow, BEHAVIOR_FAIL_SHARED_MEM, False),
     ("force_fp8",            mutate_force_fp8,           BEHAVIOR_FAIL_DTYPE,      False),
@@ -520,7 +492,6 @@ MUTATORS: list[tuple] = [
     # it to a dtype failure on pre-Ampere GPUs (see _BF16_MIN_CC_MAJOR).
     ("force_bf16",           mutate_force_bf16,          BEHAVIOR_RUNS_NO_BF16,    True),
     ("non_pow2_block",       mutate_non_pow2_block,      BEHAVIOR_FAIL_BLOCK_SIZE, False),
-    ("tensor_core_misalign", mutate_tensor_core_misalign, BEHAVIOR_RUNS_NO_TC,    True),
 ]
 
 
@@ -1773,14 +1744,29 @@ def mutate_only(
     """Phase 2: mutate gold Triton kernels and validate T4 hardware behaviour.
 
     Usage:
-        modal run modal_app.py::mutate_only --limit 10
+        modal run modal_app.py::mutate_only --limit 10        # watch it
+        modal run --detach modal_app.py::mutate_only          # fire-and-forget
+
+    Uses .spawn() rather than .remote() so the run is an independent server-side
+    call that Modal does NOT cancel when the local client disconnects.  Combined
+    with `modal run --detach`, you can launch the full pass and close your laptop;
+    results are committed to the Volume regardless of whether .get() below ever
+    returns (disconnecting just abandons the result print, not the computation).
     """
-    summary = generate_mutations.with_options(gpu=gpu).remote(
+    call = generate_mutations.with_options(gpu=gpu).spawn(
         output_subdir=output_subdir,
         limit=limit if limit > 0 else None,
     )
-    # The full summary (incl. the skipped list) is in mutation_summary.json on
-    # the Volume; print the headline counts here.
+    print(
+        f"spawned generate_mutations (call id: {call.object_id})\n"
+        f"results -> volume '{VOLUME_NAME}':/{output_subdir}/  "
+        f"(mutation_dataset.jsonl, mutation_summary.json)\n"
+        f"pull later with:  modal volume get {VOLUME_NAME} {output_subdir} ./{output_subdir}",
+        flush=True,
+    )
+    # Block for the summary when watching interactively; on disconnect the
+    # spawned call keeps running and commits to the Volume on its own.
+    summary = call.get()
     print(json.dumps({k: v for k, v in summary.items() if k != "skipped"}, indent=2))
 
 
