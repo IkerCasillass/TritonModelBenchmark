@@ -32,10 +32,19 @@ ENV/
 
 # Local predictions / artifacts pulled from the Modal volume
 predictions/
-results/
+pulled/
 *.jsonl
 *.gen_meta.json
 summary.json
+
+# Curated, committed results live under results/ — re-include them (the bulky
+# full mutation_dataset.jsonl and *_raw.jsonl stay out; slim/summaries are kept).
+!results/
+!results/**/
+!results/**/*.json
+!results/**/*_slim.jsonl
+results/**/mutation_dataset.jsonl
+results/**/*_raw.jsonl
 
 # Secrets — never commit
 .env

@@ -1,0 +1,24 @@
+{
+  "gpu": "Tesla T4",
+  "compute_cap": "7.5",
+  "gold_kernels_probed": 184,
+  "gold_runs_clean": 151,
+  "n_items": 364,
+  "n_fail": 213,
+  "n_run": 151,
+  "fail_operator_dist": {
+    "elementwise": 70,
+    "matmul": 54,
+    "reduction": 89
+  },
+  "run_operator_dist": {
+    "elementwise": 58,
+    "matmul": 36,
+    "reduction": 57
+  },
+  "fail_category_dist": {
+    "fail_dtype_unsupported": 199,
+    "fail_compile_shared_mem": 14
+  },
+  "eval_set_path": "awareness/eval_set.jsonl"
+}

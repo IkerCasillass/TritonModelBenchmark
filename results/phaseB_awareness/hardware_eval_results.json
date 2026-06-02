@@ -1,0 +1,77 @@
+{
+  "gpu": "Tesla T4",
+  "compute_cap": "7.5",
+  "models": [
+    "openrouter/owl-alpha"
+  ],
+  "conditions": [
+    "name",
+    "cap",
+    "full"
+  ],
+  "n_items": 364,
+  "metrics": {
+    "openrouter/owl-alpha": {
+      "name": {
+        "n_scored": 362,
+        "accuracy": 0.7541,
+        "balanced_accuracy": 0.7842,
+        "fail_recall": 0.6085,
+        "run_specificity": 0.96,
+        "failure_category_accuracy": 0.9922,
+        "unparseable": 2,
+        "by_operator": {
+          "matmul": 0.7865,
+          "elementwise": 0.7559,
+          "reduction": 0.7329
+        }
+      },
+      "cap": {
+        "n_scored": 359,
+        "accuracy": 0.7465,
+        "balanced_accuracy": 0.7755,
+        "fail_recall": 0.6048,
+        "run_specificity": 0.9463,
+        "failure_category_accuracy": 1.0,
+        "unparseable": 5,
+        "by_operator": {
+          "elementwise": 0.7323,
+          "matmul": 0.7841,
+          "reduction": 0.7361
+        }
+      },
+      "full": {
+        "n_scored": 361,
+        "accuracy": 0.7562,
+        "balanced_accuracy": 0.7883,
+        "fail_recall": 0.6103,
+        "run_specificity": 0.9662,
+        "failure_category_accuracy": 1.0,
+        "unparseable": 3,
+        "by_operator": {
+          "matmul": 0.8202,
+          "elementwise": 0.7302,
+          "reduction": 0.7397
+        }
+      }
+    }
+  },
+  "leaderboard": [
+    {
+      "model": "openrouter/owl-alpha",
+      "condition": "name",
+      "n_scored": 362,
+      "accuracy": 0.7541,
+      "balanced_accuracy": 0.7842,
+      "fail_recall": 0.6085,
+      "run_specificity": 0.96,
+      "failure_category_accuracy": 0.9922,
+      "unparseable": 2,
+      "by_operator": {
+        "matmul": 0.7865,
+        "elementwise": 0.7559,
+        "reduction": 0.7329
+      }
+    }
+  ]
+}

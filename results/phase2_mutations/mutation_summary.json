@@ -1,0 +1,1524 @@
+{
+  "gpu": "Tesla T4",
+  "compute_cap": "7.5",
+  "total_kernels_processed": 184,
+  "total_mutations_attempted": 736,
+  "total_mutations_applicable": 439,
+  "by_mutation": {
+    "shared_mem_overflow": {
+      "attempted": 184,
+      "applicable": 85,
+      "validated": 16,
+      "validation_rate": 0.1882,
+      "applicability_rate": 0.462
+    },
+    "force_fp8": {
+      "attempted": 184,
+      "applicable": 159,
+      "validated": 156,
+      "validation_rate": 0.9811,
+      "applicability_rate": 0.8641
+    },
+    "force_bf16": {
+      "attempted": 184,
+      "applicable": 110,
+      "validated": 82,
+      "validation_rate": 0.7455,
+      "applicability_rate": 0.5978
+    },
+    "non_pow2_block": {
+      "attempted": 184,
+      "applicable": 85,
+      "validated": 72,
+      "validation_rate": 0.8471,
+      "applicability_rate": 0.462
+    }
+  },
+  "skipped": [
+    {
+      "kernel_id": "add_example.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "add_example.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "add_value.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "add_value.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "apply_penalty.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "apply_penalty.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "attention_fwd_triton1.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "attention_fwd_triton1.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "attention_fwd_triton1.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "attention_kernel.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "attention_kernel_aligned.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "attention_llama.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "batched_vecmat_mult.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "batched_vecmat_mult.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bgmv_expand_slice.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bgmv_expand_slice.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bgmv_shrink_kernel.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_chunk_bwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_chunk_bwd.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_chunk_bwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_chunk_fwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_chunk_fwd.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_chunk_fwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_optimized.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "bmm_optimized.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_bwd_dqkg.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_bwd_dqkg.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_cumsum_kernel.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_cumsum_kernel.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_cumsum_vector.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_cumsum_vector.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_delta_fwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_delta_fwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gate_recurrence.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gate_recurrence.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gated_attention.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gated_attention.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gated_attention.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gla_fwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gla_fwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gla_simple.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_gla_simple.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_linear_attn.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_linear_attn.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_retention.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_retention.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_retention_ops.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunk_retention_ops.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunked_cumsum_fwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "chunked_cumsum_fwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "context_attn_bloom.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "context_attn_fwd.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "context_attn_llama.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "context_attn_mistral.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "context_attn_nopad.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "cosine_compute.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "cosine_compute.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "cosine_compute.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "cross_entropy1.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "cross_entropy2.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "cross_entropy2.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "cross_entropy_ops.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "decay_cumsum.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "decay_cumsum.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "dequantize_matmul.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "dequantize_matmul.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "dequantize_rowwise.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "dequantize_rowwise.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv1.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv1.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv1.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv1.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv2.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv2.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv2.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "destindex_copy_kv2.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "dropout_triton.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "dropout_triton.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "f8_conversion_utils.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "f8_conversion_utils.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fifth_order_sph_harmonics.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fifth_order_sph_harmonics.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "flash_decode2_llama.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "flash_decode2_llama.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "flash_decode2_phi.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "flash_decode2_phi.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fp4_to_bf16.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fp4_to_bf16.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fp4_to_bf16.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fp4_to_bf16_conversion.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fp4_to_bf16_conversion.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fp4_to_bf16_conversion.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_layernorm_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_layernorm_triton.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_layernorm_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_recurrent_delta.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_recurrent_delta.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_recurrent_hgrn.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_recurrent_hgrn.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_recurrent_retention.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_recurrent_retention.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_rotary_embedding.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_rotary_embedding.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_rwkv6_kernel.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "fused_rwkv6_kernel.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "index_select_bwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "index_select_bwd.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "index_select_bwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "index_select_cat.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "index_select_cat.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "index_select_cat.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "index_select_cat.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int4_matmul.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int4_matmul.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int4_matmul.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_matmul_kernel.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_matmul_kernel.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_matmul_kernel.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_matmul_kernel.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_matmul_quantization.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_matmul_quantization.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_quantization.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int8_quantization.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int_scaled_matmul.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "int_scaled_matmul.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "isfinite_kernel.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "isfinite_kernel.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "iv_dependent_matmul.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "iv_dependent_matmul.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "iv_dependent_matmul.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kcache_copy_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kcache_copy_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kldiv_compute.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kldiv_compute.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "ksoftmax_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "ksoftmax_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kv_cache_copy.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kv_cache_copy.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kv_cache_filling.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "kv_cache_filling.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "l2_norm_bwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "l2_norm_bwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "l2_norm_triton1.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "l2_norm_triton1.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "l2_norm_triton2.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "l2_norm_triton2.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "layer_norm_fwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "layer_norm_fwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "layer_norm_ops.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "layer_norm_ops.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "layer_norm_welfold.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "layer_norm_welfold.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "layer_norm_welfold.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "lightning_attention.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "lightning_attention.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "llama_ff_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "llama_ff_triton.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "llama_ff_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "logsumexp_fwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "logsumexp_fwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "lora_expand_gemv.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "lora_expand_gemv.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "masked_add_cuda.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "masked_add_cuda.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "masked_select.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "masked_select.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequant_int4.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequant_int4.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequant_int4.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequantize.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequantize.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequantize.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequantize_int4.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequantize_int4.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_dequantize_int4.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_kernel.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_kernel.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_kernel.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_leakyrelu.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_leakyrelu.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_leakyrelu.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_leakyrelu_fp8.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_leakyrelu_fp8.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_leakyrelu_fp8.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_persistent_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_persistent_triton.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_persistent_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton1.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton1.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton1.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton2.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton2.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton_autotune.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton_autotune.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matmul_triton_autotune.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_reduction.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_reduction.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_reduction.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_reduction.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_transpose.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_transpose.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_transpose.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_transpose.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_vector_multip.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_vector_multip.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "matrix_vector_multip.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "max_reduction.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "max_reduction.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "mixed_sparse_attention.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "nested_loops_processing.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "nested_loops_processing.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "nested_loops_processing.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "nested_loops_processing.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "parallel_attention.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "parallel_attention.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "parallel_retention_attention.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "parallel_retention_attention.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "pow_scalar_tensor.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "pow_scalar_tensor.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "quantize_copy_kv.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "quantize_copy_kv.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "quantize_copy_kv.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "quantize_kv_copy.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "quantize_kv_copy.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "quantize_kv_transform.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "quantize_kv_transform.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rbe_triton_transform.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rbe_triton_transform.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rbe_triton_transform.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "relu_strided_buffer.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "relu_strided_buffer.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "relu_strided_buffer.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "relu_strided_buffer.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "reversed_cumsum.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "reversed_cumsum.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "reversed_cumsum_scalar.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "reversed_cumsum_scalar.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_matmul_rbe.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_matmul_rbe.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_matmul_rbe.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_norm_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_norm_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_rbe_matmul.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_rbe_matmul.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rms_rbe_matmul.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rmsnorm_fused_llama.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rmsnorm_implementation.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rmsnorm_implementation.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rmsnorm_implementation.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rmsnorm_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rmsnorm_triton.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rmsnorm_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rope_embedding.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rope_embedding.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rotary_emb.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rotary_emb.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rotary_emb_nopad.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rotary_emb_nopad.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rotary_transform.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rowwise_quantization_triton.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rowwise_quantization_triton.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rowwise_quantization_triton.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "rowwise_quantization_triton.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "seeded_dropout.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "seeded_dropout.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "sgmv_expand_slice.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "sin_computation.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "sin_computation.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "softmax_flaggems.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "softmax_flaggems.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "softmax_optimize.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "softmax_optimize.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "softmax_triton3.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "spinning_lock_reduction.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "spinning_lock_reduction.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "square_matrix.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "square_matrix.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "token_softmax_bloom.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_argmax.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_conv2d_fwd.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_conv2d_fwd.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_linear_activation.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_matmul.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_matmul.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_matmul.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_mul2.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "triton_mul2.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "uniform_sampling.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "uniform_sampling.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "vector_addition.py",
+      "mutation_type": "force_fp8",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "vector_addition.py",
+      "mutation_type": "force_bf16",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "vector_addition_custom.py",
+      "mutation_type": "shared_mem_overflow",
+      "reason": "not applicable"
+    },
+    {
+      "kernel_id": "vector_addition_custom.py",
+      "mutation_type": "non_pow2_block",
+      "reason": "not applicable"
+    }
+  ]
+}
