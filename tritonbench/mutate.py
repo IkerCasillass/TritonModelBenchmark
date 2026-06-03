@@ -1,4 +1,4 @@
-"""Phase 2 — deliberate hardware-aware mutations (generate_mutations)."""
+"""Hardware-aware kernel mutations: provoke specific GPU limits on known-good kernels."""
 from __future__ import annotations
 
 import json
@@ -9,19 +9,11 @@ from .kernels import (HARDWARE_FAILURE_TYPES, _classify_kernel_failure,
                       _probe_kernel_file, _run_kernel_capture)
 from .llm import _is_valid_python
 
-# Phase 1 showed that ~95% of LLM-kernel failures are code bugs, not hardware
-# limits, so the failure dataset carries almost no hardware-attributable signal.
-# To get one deliberately, we take the *gold* human-written Triton kernels
-# (known-good) and apply five targeted mutations, each engineered to provoke a
-# specific T4 (sm_75) constraint, then verify the kernel actually behaved as
-# predicted on the GPU.
-#
-# Source: TritonBench_G_v1 — the only TritonBench dataset whose .py files are
-# real Triton kernels.  (The TritonBench_T_v1 files Phase 3 uses are PyTorch
-# references — `return F.softmax(...)` — with no tl.* / BLOCK_SIZE to mutate.)
-# Each G_v1 file is self-contained: kernel + wrapper, a "#"*146 separator, then
-# a module-level `test_*()` call that runs on import — so it is directly
-# runnable under the same isolated-subprocess pattern Phase 1 uses.
+# Targeted single-variable mutations of the known-good gold Triton kernels
+# (TritonBench_G_v1) provoke specific T4 (sm_75) hardware limits, which are then
+# verified on the GPU. Each gold file is self-contained — kernel + wrapper, a
+# "#"*146 separator, then a module-level test that runs on import — so it runs
+# directly in an isolated subprocess.
 
 GOLD_TRITON_DIR = f"{REPO_DIR}/data/TritonBench_G_v1"
 
@@ -35,10 +27,10 @@ BEHAVIOR_FAIL_DTYPE      = "fail_dtype_unsupported"
 BEHAVIOR_FAIL_BLOCK_SIZE = "fail_invalid_block_size"
 BEHAVIOR_RUNS_NO_BF16    = "runs_no_bf16_speedup"
 
-# Behaviours that are hardware-attributable (used to set is_hardware_failure
-# even when _classify_kernel_failure — which we must not modify — labels the
-# raw error generically; e.g. a bf16 "requires sm_80" ptxas error classifies as
-# other_runtime, but the observed behaviour is a real dtype/arch limit).
+# Hardware-attributable behaviours — set is_hardware_failure even when
+# _classify_kernel_failure labels the raw error generically (e.g. a bf16
+# "requires sm_80" ptxas error classifies as other_runtime, yet the observed
+# behaviour is a real dtype/arch limit).
 HARDWARE_BEHAVIORS: frozenset[str] = frozenset({
     BEHAVIOR_FAIL_SHARED_MEM,
     BEHAVIOR_FAIL_DTYPE,
@@ -62,8 +54,8 @@ def _split_gold(source: str) -> tuple[str, str, str]:
 def _force_block_value(code: str, names: tuple[str, ...], value: int) -> tuple[str, int]:
     """Force every BLOCK_* constant in *names* to *value*; return (code, n_subs).
 
-    Four narrow, syntax-safe substitution forms are handled so we never mangle a
-    computed right-hand side (e.g. ``BLOCK_SIZE = min(next_pow2(n), 1024)``):
+    Four narrow, syntax-safe substitution forms, none of which mangle a computed
+    right-hand side (e.g. ``BLOCK_SIZE = min(next_pow2(n), 1024)``):
 
       (1) integer-literal assign / kwarg — ``BLOCK_SIZE = 128`` / ``BLOCK_SIZE=128``
           RHS is ``\\d+`` only, so it can never swallow a comma or paren.
@@ -127,20 +119,15 @@ def mutate_force_fp8(source: str) -> str | None:
 
 
 def mutate_force_bf16(source: str) -> str | None:
-    """Swap fp32 → bf16 for **storage only** (input tensors), not in-kernel math.
+    """Swap fp32 -> bf16 for storage only (input tensors), leaving in-kernel math.
 
-    Surgical by design.  An earlier version replaced every ``tl.float32`` too,
-    which bf16'd accumulators while ``tl.dot`` still output fp32 — producing a
-    Triton "loop-carried variable acc has initial type bf16 but is re-assigned to
-    fp32" error that fails on *any* arch (an arch-independent code artifact, not a
-    hardware signal).  Changing only ``dtype=torch.float32`` → ``torch.bfloat16``
-    in the wrapper/test makes the *inputs* bf16 while leaving fp32 accumulators
-    intact, which is also the realistic bf16 usage pattern (store bf16, accumulate
-    fp32).  bf16 loads/casts still emit ``.bf16`` PTX, so on pre-Ampere (T4 sm_75)
-    the kernel fails at ptxas ("requires .target sm_80") — a clean dtype/arch
-    hardware failure — while on Ampere+ it runs (the perf prediction).
+    Changing only ``dtype=torch.float32`` keeps fp32 accumulators intact (the
+    realistic bf16 usage pattern) while still emitting ``.bf16`` PTX, so on
+    pre-Ampere (sm_75) the kernel fails at ptxas ("requires .target sm_80") and on
+    Ampere+ it runs. Replacing in-kernel ``tl.float32`` too would instead bf16 the
+    accumulators against an fp32 ``tl.dot``, an arch-independent type error.
 
-    Kernels with no ``dtype=torch.float32`` tensor allocation return None.
+    Returns None when there is no ``dtype=torch.float32`` allocation to change.
     """
     new = source.replace("dtype=torch.float32", "dtype=torch.bfloat16")
     return new if new != source else None
@@ -157,22 +144,13 @@ def mutate_non_pow2_block(source: str) -> str | None:
     return new + sep + test
 
 
-# NOTE: a fifth mutation, `tensor_core_misalign`, was retired after the full
-# 184-kernel run (validated only 1/28 — 3.6%).  Triton masks ragged shapes so
-# Tensor Cores still partly engage, and `tl.dot`'s input_precision/allow_tf32
-# are fp32-only (no fp16/bf16 TC-disable switch), leaving shape as the only —
-# and too blunt — lever (most variants tripped exact-shape asserts → other_runtime).
-# Removed rather than kept as noise.  See PHASE2_DESIGN.md and git history.
-
-
-# Ordered registry: (name, fn, predicted_behavior, is_perf_mutation).
-# Failure mutations probe stderr; performance mutations time the kernel against
-# the fp32 baseline.
+# Registry: (name, fn, predicted_behavior, is_perf_mutation). Failure mutations
+# probe stderr; performance mutations time the kernel against the fp32 baseline.
+# bf16's default is the Ampere+ perf prediction; generate_mutations overrides it
+# to a dtype failure on pre-Ampere GPUs (see _BF16_MIN_CC_MAJOR).
 MUTATORS: list[tuple] = [
     ("shared_mem_overflow",  mutate_shared_mem_overflow, BEHAVIOR_FAIL_SHARED_MEM, False),
     ("force_fp8",            mutate_force_fp8,           BEHAVIOR_FAIL_DTYPE,      False),
-    # bf16 default is the Ampere+ perf prediction; generate_mutations overrides
-    # it to a dtype failure on pre-Ampere GPUs (see _BF16_MIN_CC_MAJOR).
     ("force_bf16",           mutate_force_bf16,          BEHAVIOR_RUNS_NO_BF16,    True),
     ("non_pow2_block",       mutate_non_pow2_block,      BEHAVIOR_FAIL_BLOCK_SIZE, False),
 ]
@@ -184,7 +162,7 @@ def _failure_to_behavior(failure_type: str, stderr: str) -> str:
     Direct classifier labels map first; otherwise Triton frequently funnels
     these limits into a generic CompilationError, so disambiguate by keyword.
     Falls back to the raw classifier label when nothing matches (the row stays
-    `validated: false`, which is the diagnostic signal we want).
+    `validated: false`).
     """
     if failure_type == "shared_mem_overflow":
         return BEHAVIOR_FAIL_SHARED_MEM
@@ -266,9 +244,9 @@ def generate_mutations(
     output_subdir: str = "mutations",
     limit: int | None = None,
 ) -> dict:
-    """Apply five hardware-aware mutations to each gold Triton kernel and verify
-    the predicted T4 behaviour, writing ``mutation_dataset.jsonl`` +
-    ``mutation_summary.json`` to the Volume.  See the Phase 2 section header.
+    """Apply each mutation to every gold Triton kernel, verify the predicted
+    hardware behaviour on the GPU, and write ``mutation_dataset.jsonl`` +
+    ``mutation_summary.json`` to the Volume.
     """
     import tempfile
     import torch as _torch
@@ -284,7 +262,7 @@ def generate_mutations(
     gpu_name    = _torch.cuda.get_device_name(0)
 
     print(
-        f"\nPhase 2: mutating {len(gold_paths)} gold kernels on {gpu_name} "
+        f"\nmutating {len(gold_paths)} gold kernels on {gpu_name} "
         f"(cc {compute_cap}), {len(MUTATORS)} mutations each, "
         f"timeout={KERNEL_TIMEOUT}s per run",
         flush=True,

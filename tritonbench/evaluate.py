@@ -1,4 +1,4 @@
-"""Phases 1-3 — call accuracy, execution accuracy, efficiency (evaluate)."""
+"""Kernel evaluation: call-accuracy, execution-accuracy, and efficiency stages."""
 from __future__ import annotations
 
 import json

@@ -103,17 +103,15 @@ def mutate_only(
     output_subdir: str = "mutations",
     gpu: str = DEFAULT_GPU,
 ):
-    """Phase 2: mutate gold Triton kernels and validate T4 hardware behaviour.
+    """Mutate gold Triton kernels and validate the predicted hardware behaviour.
 
     Usage:
         modal run modal_app.py::mutate_only --limit 10        # watch it
         modal run --detach modal_app.py::mutate_only          # fire-and-forget
 
-    Uses .spawn() rather than .remote() so the run is an independent server-side
-    call that Modal does NOT cancel when the local client disconnects.  Combined
-    with `modal run --detach`, you can launch the full pass and close your laptop;
-    results are committed to the Volume regardless of whether .get() below ever
-    returns (disconnecting just abandons the result print, not the computation).
+    Uses .spawn() so the run is an independent call that survives client
+    disconnect; with `modal run --detach`, results commit to the Volume whether
+    or not .get() below returns.
     """
     call = generate_mutations.with_options(gpu=gpu).spawn(
         output_subdir=output_subdir,
@@ -140,7 +138,7 @@ def build_awareness_set_only(
     probe_timeout: int = 20,
     gpu: str = DEFAULT_GPU,
 ):
-    """Phase B1: build the hardware-awareness eval set from a mutation dataset.
+    """Build the hardware-awareness eval set from a mutation dataset.
 
     Usage:
         modal run modal_app.py::build_awareness_set_only
@@ -162,15 +160,13 @@ def hardware_eval_only(
     concurrency: int = 8,
     output_subdir: str = "awareness",
 ):
-    """Phase B2: quiz models on the eval set and score hardware-awareness.
+    """Quiz models on the eval set and score hardware-awareness.
 
     Usage:
         modal run modal_app.py::hardware_eval_only --models "anthropic/claude-sonnet-4-5,openai/gpt-4o-mini"
     """
-    # .spawn() (not .remote()) so the eval survives a client disconnect — a long
-    # multi-model run shouldn't be canceled (and its OpenRouter spend wasted) if
-    # the laptop closes.  Pair with `modal run --detach` for true fire-and-forget;
-    # results land in the Volume regardless of whether .get() below returns.
+    # .spawn() so a long multi-model run survives client disconnect; pair with
+    # `modal run --detach`. Results land in the Volume regardless of .get().
     call = hardware_eval.spawn(
         eval_set_path=eval_set_path,
         models=models,
@@ -223,10 +219,7 @@ def refine_loop(
     output_subdir: str = "refine",
     gpu: str = DEFAULT_GPU,
 ):
-    """Phase C: hardware-in-the-loop generate->run->refine loop.
-
-    SCAFFOLD — currently runs on the Section 0 stubs (no real model/GPU work) to
-    prove the seam. Owners replace the stub bodies (see docs/PHASE_C_TASKS.md).
+    """Hardware-in-the-loop generate -> run -> refine loop.
 
     Usage:
         modal run modal_app.py::refine_loop --gen-model "<small-slug>" --limit 3

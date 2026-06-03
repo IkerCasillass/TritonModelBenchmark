@@ -1,13 +1,9 @@
-"""Phase C — hardware-in-the-loop generate->run->refine loop.
+"""Hardware-in-the-loop generate -> run -> refine loop.
 
-OWNER A (you): judge_kernel (real hardware judge), interpret_failure (small
-interpreter grounded by the classifier), the loop controller `_refine_one`, the
-`generate_refine` Modal entrypoint, and metrics.
-
-Section 0 scaffold: the FROZEN CONTRACT + runnable STUBs. Each owner replaces the
-STUB body of their function; the seam (signatures + JudgeResult) does not change.
-See docs/PHASE_C_TASKS.md. The stubs are content-reactive so the whole loop runs
-end-to-end today (no GPU, no real model) to prove the wiring.
+A generator writes a Triton kernel; it is compiled and run on the target GPU and
+checked against the PyTorch reference; on failure the error is turned into an
+actionable hint and the generator revises. The loop ends when the kernel runs and
+its output matches the reference, or after ``max_iters``.
 """
 from __future__ import annotations
 
@@ -17,89 +13,70 @@ from typing import TypedDict
 
 import modal
 
-from .core import *  # noqa: F401,F403
-from .core import T4_FAILURE_HINTS
-from .generator import generate_kernel   # owned by B/C/D
+from .core import (DATA_DIR, DEFAULT_GPU, DEFAULT_MODEL, LLM_SECRET_NAME,
+                   T4_FAILURE_HINTS, app, data_volume)
+from .generator import generate_kernel
 
 
 class JudgeResult(TypedDict):
     compiled: bool
     ran: bool
     correct: bool
-    failure_type: str | None     # one of kernels._classify_kernel_failure's labels, or None
+    failure_type: str | None     # a _classify_kernel_failure label, or None
     raw_stderr: str
-    diagnostic: str              # e.g. a stdout diff on numerical_mismatch
+    diagnostic: str              # e.g. a stdout diff on numerical mismatch
 
 
 FEEDBACK_MODES = ("interpreted", "category", "raw")
 
 
-# --- CONTRACT (Owner A fills these two) ------------------------------------- #
-
 def judge_kernel(generated_code: str, operator_id: str) -> JudgeResult:
-    """[OWNER A — STUB] Hardware-in-the-loop judge: compile+run on the T4 and check
-    correctness vs the PyTorch reference.
+    """Compile and run the kernel on the target GPU and check correctness.
 
-    Real implementation (reuse, no rebuild):
-      - write `code + "\\n" + "#"*146 + "\\n" + test` to a tmp .py
-      - run via `kernels._probe_kernel_file(path, timeout=...)`; non-zero -> classify
-        with `kernels._classify_kernel_failure(stderr)`
-      - on clean run, compare stdout to the cached golden (PyTorch ref) -> set
-        correct / failure_type="numerical_mismatch" + a short diff in `diagnostic`.
-
-    Stub: content-reactive so the loop demonstrably iterates — 'bf16' in the code
-    'fails' as a dtype error, otherwise it 'passes'.
+    Write ``code + sep + test`` to a temp file, run via
+    ``kernels._probe_kernel_file`` and classify any failure with
+    ``kernels._classify_kernel_failure``; on a clean run, compare stdout to the
+    cached PyTorch-reference output (mismatch -> ``numerical_mismatch``).
     """
-    if "bf16" in generated_code or "bfloat16" in generated_code:
-        return JudgeResult(
-            compiled=False, ran=False, correct=False,
-            failure_type="dtype_unsupported",
-            raw_stderr="Feature '.bf16' requires .target sm_80 or higher",
-            diagnostic="",
-        )
-    return JudgeResult(compiled=True, ran=True, correct=True,
-                       failure_type=None, raw_stderr="", diagnostic="")
+    raise NotImplementedError
 
 
 def interpret_failure(generated_code: str, jr: JudgeResult) -> str:
-    """[OWNER A — STUB] Turn the hardware failure into an actionable, code-level fix.
+    """Return an actionable fix-hint for a failure, keyed on its classified type.
 
-    Real implementation: a small-model `llm._gen` call, GROUNDED by the pinned
-    `failure_type` (-> `core.T4_FAILURE_HINTS`) + raw stderr, so it phrases the fix
-    without re-diagnosing. Stub returns the curated category hint directly.
+    Deterministic baseline; may be upgraded to a model call grounded by the same
+    ``failure_type`` + raw stderr.
     """
     if jr["correct"]:
         return ""
     return T4_FAILURE_HINTS.get(jr["failure_type"] or "", "Fix the reported error.")
 
 
-# --- Loop controller (Owner A) ---------------------------------------------- #
-
 def _build_feedback(jr: JudgeResult, hint: str, feedback_mode: str) -> str:
-    """Shape what the generator sees next, per the ablation mode."""
+    """Render the feedback shown to the generator for the next attempt."""
     if feedback_mode == "raw":
-        return f"The kernel failed on the T4. Raw error:\n{jr['raw_stderr'] or jr['diagnostic']}"
+        return f"The kernel failed on the target GPU. Raw error:\n{jr['raw_stderr'] or jr['diagnostic']}"
     if feedback_mode == "category":
-        return f"The kernel failed on the T4 with failure category: {jr['failure_type']}."
-    return f"The kernel failed on the T4 ({jr['failure_type']}). {hint}"   # interpreted
+        return f"The kernel failed on the target GPU with failure category: {jr['failure_type']}."
+    return f"The kernel failed on the target GPU ({jr['failure_type']}). {hint}"
 
 
 def _refine_one(operator_id: str, gen_model: str, interp_model: str,
                 max_iters: int = 5, feedback_mode: str = "interpreted") -> dict:
-    """generate -> judge -> interpret, until correct or max_iters. Returns trajectory."""
+    """Run the loop for one operator; return its trajectory."""
     history: list[dict] = []
     status_per_iter: list[str] = []
     ftype_per_iter: list[str | None] = []
     final_code = ""
-    for it in range(max_iters):
-        code = generate_kernel(operator_id, history)        # B/C/D
+    for _ in range(max_iters):
+        code = generate_kernel(operator_id, history)
         final_code = code
-        jr = judge_kernel(code, operator_id)                # A (hardware)
+        jr = judge_kernel(code, operator_id)
         status_per_iter.append("pass" if jr["correct"] else "fail")
         ftype_per_iter.append(jr["failure_type"])
         if jr["correct"]:
             break
-        hint = interpret_failure(code, jr) if feedback_mode == "interpreted" else ""  # A
+        hint = interpret_failure(code, jr) if feedback_mode == "interpreted" else ""
         history.append({"code": code, "judge": jr, "hint": hint,
                         "feedback": _build_feedback(jr, hint, feedback_mode)})
     passed = bool(status_per_iter) and status_per_iter[-1] == "pass"
@@ -112,37 +89,37 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
     }
 
 
-@app.function(  # noqa: F405
-    gpu=DEFAULT_GPU,  # noqa: F405
+def _select_operators(limit: int | None) -> list[str]:
+    """Operator ids to refine, drawn from the TritonBench-T set (golden refs cached)."""
+    raise NotImplementedError
+
+
+@app.function(
+    gpu=DEFAULT_GPU,
     timeout=60 * 60 * 4,
-    volumes={DATA_DIR: data_volume},  # noqa: F405
-    secrets=[modal.Secret.from_name(LLM_SECRET_NAME)],  # noqa: F405
+    volumes={DATA_DIR: data_volume},
+    secrets=[modal.Secret.from_name(LLM_SECRET_NAME)],
 )
 def generate_refine(
-    gen_model: str = DEFAULT_MODEL,  # noqa: F405
+    gen_model: str = DEFAULT_MODEL,
     interp_model: str = "",
     limit: int | None = None,
     max_iters: int = 5,
     feedback_mode: str = "interpreted",
     output_subdir: str = "refine",
 ) -> dict:
-    """Phase C orchestrator. SCAFFOLD: runs `_refine_one` across operators on stubs.
-
-    Real version (Owner A): operator list via `llm._load_alpaca` +
-    `call_acc.get_corresponding_files`, precompute & cache golden stdout per
-    operator, run `_refine_one` across them with a ThreadPoolExecutor.
-    """
+    """Run the refine loop across operators and write per-operator trajectories + a summary."""
     interp_model = interp_model or gen_model
-    # SCAFFOLD operator ids (the real version loads the alpaca/TritonBench-T set).
-    operators = [f"stub_op_{i}.py" for i in range(limit or 3)]
+    operators = _select_operators(limit)
     rows = [_refine_one(op, gen_model, interp_model, max_iters, feedback_mode)
             for op in operators]
 
-    out_dir = Path(DATA_DIR) / output_subdir  # noqa: F405
+    out_dir = Path(DATA_DIR) / output_subdir
     out_dir.mkdir(parents=True, exist_ok=True)
     with (out_dir / "refine_dataset.jsonl").open("w") as f:
         for r in rows:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
     n = len(rows)
     passed = sum(r["passed"] for r in rows)
     summary = {
@@ -152,9 +129,8 @@ def generate_refine(
         "pass_at_1": round(sum(r["status_per_iter"][:1] == ["pass"] for r in rows) / n, 4) if n else None,
         "mean_iterations": round(sum(r["iterations"] for r in rows) / n, 2) if n else None,
         "feedback_mode": feedback_mode,
-        "scaffold": True,   # remove when judge_kernel/generate_kernel are real
     }
     (out_dir / "refine_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
-    data_volume.commit()  # noqa: F405
+    data_volume.commit()
     print(json.dumps(summary, indent=2), flush=True)
     return summary

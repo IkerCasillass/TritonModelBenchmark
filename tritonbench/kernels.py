@@ -136,11 +136,9 @@ def _set_mem_limit() -> None:
 def _probe_kernel_file(path: Path, timeout: int = KERNEL_TIMEOUT) -> tuple[int, str]:
     """Run *path* in an isolated subprocess; return (returncode, stderr).
 
-    Mirrors the Phase 3 isolation pattern: a wall-clock limit (default
-    KERNEL_TIMEOUT; callers may pass a shorter one) and _set_mem_limit
-    virtual-memory ceiling.  Called before Phase 1 / Phase 2 upstream scripts run
-    so stderr is captured before failing files are deleted.  stdout is discarded
-    — only stderr carries failure information.
+    A wall-clock limit (default KERNEL_TIMEOUT; callers may pass a shorter one)
+    and a _set_mem_limit virtual-memory ceiling. stdout is discarded — only
+    stderr carries failure information.
     """
     try:
         proc = subprocess.run(
@@ -156,11 +154,9 @@ def _probe_kernel_file(path: Path, timeout: int = KERNEL_TIMEOUT) -> tuple[int, 
     except Exception as exc:
         return -1, str(exc)
 
-def _run_kernel_capture(path: Path) -> tuple[int, str, str]:
-    """Like _probe_kernel_file but also returns stdout (needed for timing).
 
-    Same KERNEL_TIMEOUT + _set_mem_limit isolation as Phase 1.
-    """
+def _run_kernel_capture(path: Path) -> tuple[int, str, str]:
+    """Like _probe_kernel_file but also returns stdout (needed for timing)."""
     try:
         proc = subprocess.run(
             [sys.executable, str(path)],

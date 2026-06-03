@@ -1,4 +1,4 @@
-"""Phase 0 — LLM PyTorch->Triton generation (generate_predictions)."""
+"""LLM PyTorch->Triton kernel generation."""
 from __future__ import annotations
 
 import json

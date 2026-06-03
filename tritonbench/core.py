@@ -36,8 +36,7 @@ LLM_SECRET_NAME = os.environ.get("TRITONBENCH_LLM_SECRET", "tritonbench-llm")
 MAX_RETRIES = 2
 RETRY_BASE_DELAY = 4.0   # seconds; doubles each attempt (exponential backoff)
 
-# Per-kernel subprocess resource limits — shared across Phase 1 / Phase 2
-# pre-probing and Phase 3 benchmarking.
+# Per-kernel subprocess resource limits for isolated kernel runs.
 KERNEL_TIMEOUT  = 60               # wall-clock seconds before killing a subprocess
 VIRT_MEM_BYTES  = 12 * 1024 ** 3  # 12 GiB virtual-address ceiling
 
@@ -84,7 +83,7 @@ image = (
         "tqdm==4.66.5",
         "numpy<2",
         "openai>=1.50",
-        "psutil>=5.9",   # used for memory diagnostics in Phase 3
+        "psutil>=5.9",   # memory diagnostics
     )
     .run_commands(f"git clone --depth 1 {TRITONBENCH_REPO} {REPO_DIR}")
     .run_commands(PATCH_CALL_ACC, PATCH_EXE_ACC, PATCH_PERF)
@@ -95,9 +94,7 @@ image = (
         f"ln -s {REPO_DIR}/EVAL/eval_T/0_call_acc.py {REPO_DIR}/EVAL/eval_T/call_acc.py",
         f"ln -s {REPO_DIR}/EVAL/eval_T/1_exe_acc.py {REPO_DIR}/EVAL/eval_T/exe_acc.py",
     )
-    # Modal 1.x no longer auto-mounts local packages: ship the tritonbench
-    # package (and the modal_app.py shim) into the container so functions defined
-    # across modules import correctly at runtime.
+    # Ship the local package into the image (Modal does not auto-mount it).
     .add_local_python_source("tritonbench", "modal_app")
 )
 
@@ -105,11 +102,7 @@ app = modal.App(APP_NAME, image=image)
 data_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
 
 
-# --------------------------------------------------------------------------- #
-# Target-hardware facts (shared by Phase C: the generator's system prompt AND
-# the interpreter's failure hints).  Single source so they never diverge.
-# Derived from the Phase 2 findings (see PHASE2_DESIGN.md).
-# --------------------------------------------------------------------------- #
+# Target-hardware facts, used by both the generation prompt and the failure hints.
 T4_HARDWARE = {
     "name": "NVIDIA T4",
     "compute_capability": "7.5",
@@ -128,8 +121,7 @@ T4_HARDWARE = {
     ),
 }
 
-# Per deterministic failure-category fix hint — grounds interpret_failure so the
-# small interpreter model phrases a fix without re-diagnosing the category.
+# Fix hint per failure category.
 T4_FAILURE_HINTS = {
     "dtype_unsupported":   "T4 (sm_75) has no bf16/fp8 silicon; keep storage and math in fp32 (or fp16). bf16 needs sm_80+, fp8 needs sm_89+.",
     "shared_mem_overflow": "The tile exceeds T4's 48 KB shared memory; lower BLOCK_SIZE / tile dims so staged data fits.",

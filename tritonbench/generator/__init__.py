@@ -1,7 +1,5 @@
-"""Phase C generator flow (owned by B/C/D).
+"""Kernel generation: prompt construction, model calls, and feedback-driven revision.
 
-The integration seam is a single function, `generate_kernel(operator_id, history)
--> code`, exported from `engine.py`. `prompting.py` (B) and `refinement.py` (C)
-provide the pieces `engine.generate_kernel` (D) composes.
+The integration point is ``generate_kernel(operator_id, history) -> code``.
 """
 from .engine import generate_kernel  # noqa: F401

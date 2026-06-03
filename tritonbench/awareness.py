@@ -1,4 +1,13 @@
-"""Phase B — hardware-awareness eval (build_awareness_set, hardware_eval)."""
+"""Hardware-awareness evaluation of LLMs against the mutation ground truth.
+
+Two steps:
+  build_awareness_set (GPU) — verify each gold kernel runs clean (a mutation-
+      induced failure is only attributable if its baseline ran), then build a
+      labeled set whose RUN sample is stratified by operator type to match the
+      FAIL distribution, so a model cannot shortcut on operator shape alone.
+  hardware_eval (CPU) — query each model under three escalating GPU-info
+      conditions, parse its JSON verdict, and score.
+"""
 from __future__ import annotations
 
 import json
@@ -11,22 +20,8 @@ from .kernels import _probe_kernel_file
 from .llm import _classify_failure, _gen
 from .mutate import GOLD_TRITON_DIR
 
-# Phase 2 produced ground truth: (kernel_code, T4) -> {runs | fails-with-
-# hardware-reason}.  Phase B uses it as an answer key to test whether an LLM
-# *knows the hardware*: shown a Triton kernel and a target GPU, can it predict
-# whether the kernel will run, and if not, name the hardware reason?
-#
-# Two steps:
-#   B1  build_awareness_set (GPU) — verify each gold kernel runs clean on T4
-#       (this gates BOTH classes: a mutation-induced FAIL is only attributable
-#       if its gold baseline ran), then build a labeled set whose RUN sample is
-#       stratified by operator type to match the FAIL distribution, so a model
-#       can't shortcut on "looks like a matmul -> fail".
-#   B2  hardware_eval (CPU) — query each model under three escalating GPU-info
-#       conditions (knowledge -> reasoning), parse its JSON verdict, score.
-
-# Closed set of hardware failure categories the model is asked to choose from.
-# fp8 and bf16 both surface as dtype/arch limits; shared-memory is its own.
+# Failure categories the model chooses from. fp8 and bf16 both surface as
+# dtype/arch limits; shared-memory is its own.
 HW_EVAL_CATEGORIES: tuple[str, ...] = ("fail_dtype_unsupported", "fail_compile_shared_mem")
 
 
@@ -47,9 +42,9 @@ def _operator_type(source: str) -> str:
 def _build_gpu_conditions(gpu_name: str, compute_cap: str) -> dict[str, str]:
     """Three escalating target-GPU descriptions (knowledge -> reasoning).
 
-    'full' gives architectural *facts* (arch, SRAM, Tensor-Core dtypes) but never
-    states the verdict ("no bf16") — inferring that is the reasoning we test.
-    Specs below are T4-specific (the eval set is T4); generalise per-GPU later.
+    'full' gives architectural facts (arch, SRAM, Tensor-Core dtypes) but never
+    states the verdict ("no bf16"); the model must infer it. Specs are
+    T4-specific (the eval set is T4); generalise per-GPU later.
     """
     name = f"The target GPU is an NVIDIA {gpu_name}."
     cap = (
