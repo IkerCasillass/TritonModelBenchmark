@@ -49,11 +49,9 @@ def _classify_kernel_failure(stderr: str) -> str:
     if "no kernel image is available" in s:
         # CUDA runtime: binary not compiled for this device's compute capability.
         return "arch_unsupported"
-    if ("not supported" in s or "unsupported" in s) and any(
-        t in s for t in ("bf16", "fp8", "float8")
+    if (("not supported" in s or "unsupported" in s) and any(t in s for t in ("bf16", "fp8", "float8"))) or (
+        "requires .target sm_" in s and any(t in s for t in ("bf16", "fp8", "float8", "bfloat16"))
     ):
-        # Ambiguous: "not supported" appears in many error paths; requiring an
-        # explicit dtype token (bf16/fp8/float8) narrows to GPU dtype limits.
         return "dtype_unsupported"
     if "cuda out of memory" in s or "out of memory" in s:
         return "oom"
