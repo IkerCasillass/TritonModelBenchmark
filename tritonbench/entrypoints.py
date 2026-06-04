@@ -10,7 +10,8 @@ from .generate import generate_predictions
 from .evaluate import evaluate
 from .mutate import generate_mutations
 from .awareness import build_awareness_set, hardware_eval
-from .refine import generate_refine
+from .refine import generate_refine, judge_kernel
+from .operators import build_registry, select_operators, get_operator
 
 def _upload_local_predictions(local_path: Path) -> str:
     """Upload a local predictions.jsonl to the volume; return its remote path."""
@@ -233,3 +234,89 @@ def refine_loop(
         output_subdir=output_subdir,
     )
     print(json.dumps(summary, indent=2))
+
+
+_BF16_KERNEL = """\
+import torch
+import triton
+import triton.language as tl
+
+@triton.jit
+def _k(x_ptr, o_ptr, N: tl.constexpr):
+    idx = tl.arange(0, N)
+    x = tl.load(x_ptr + idx).to(tl.bfloat16)
+    tl.store(o_ptr + idx, x)
+
+def run():
+    x = torch.ones(16, dtype=torch.float32, device="cuda")
+    o = torch.empty(16, dtype=torch.bfloat16, device="cuda")
+    _k[(1,)](x, o, 16)
+
+run()
+"""
+
+
+@app.function(gpu=DEFAULT_GPU, timeout=600)
+def _judge_smoke(dataset: str = "simp", limit: int = 5) -> dict:
+    import tempfile as _tmp
+    from pathlib import Path as _Path
+    from .core import REPO_DIR
+    from .kernels import _probe_kernel_file, _classify_kernel_failure
+
+    build_registry(dataset, limit)
+    ops = select_operators()
+    gold_base = _Path(REPO_DIR) / "data" / "TritonBench_T_v1"
+
+    passed, failed = [], []
+
+    for op_id in ops:
+        # Gold files contain kernel + "#"*146 + test; strip test before passing
+        # to judge_kernel, which appends test itself.
+        gold_src = (gold_base / op_id).read_text().split("#" * 146)[0].rstrip("\n")
+        jr = judge_kernel(gold_src, op_id)
+        ok = jr["correct"] is True
+        (passed if ok else failed).append(
+            {"test": f"{op_id}:gold", "failure_type": jr["failure_type"], "correct": jr["correct"]}
+        )
+
+    # Hardware fixture: a kernel that uses bfloat16, which T4 (sm_75) cannot run.
+    # Tests the dtype_unsupported classification path independently of the mutators.
+    with _tmp.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as fh:
+        fh.write(_BF16_KERNEL)
+        bf16_path = _Path(fh.name)
+    try:
+        rc, stderr = _probe_kernel_file(bf16_path)
+        ftype = _classify_kernel_failure(stderr)
+        ok = rc != 0 and ftype == "dtype_unsupported"
+        entry = {"test": "fixture:bf16_dtype_unsupported", "failure_type": ftype, "rc": rc}
+        if not ok:
+            entry["stderr_tail"] = stderr[-500:]
+        (passed if ok else failed).append(entry)
+    finally:
+        bf16_path.unlink(missing_ok=True)
+
+    return {
+        "registry_size": len(ops),
+        "passed": len(passed),
+        "failed": failed,
+    }
+
+
+@app.local_entrypoint()
+def test_evaluator(dataset: str = "simp", limit: int = 5, gpu: str = DEFAULT_GPU):
+    """Smoke-test the judge: gold kernels -> correct, bf16 fixture -> dtype_unsupported.
+
+    Usage:
+        modal run modal_app.py::test_evaluator --limit 5
+    """
+    r = _judge_smoke.with_options(gpu=gpu).remote(dataset=dataset, limit=limit)
+    total = r["passed"] + len(r["failed"])
+    print(json.dumps({
+        "registry_size": r["registry_size"],
+        "passed": f"{r['passed']}/{total}",
+        "all_passed": len(r["failed"]) == 0,
+    }, indent=2))
+    if r["failed"]:
+        print("\nfailed:")
+        for f in r["failed"]:
+            print(f"  {f['test']}: {f}")
