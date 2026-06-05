@@ -17,6 +17,7 @@ from typing import TypedDict
 
 import modal
 
+from . import llm
 from . import operators as _operators
 from .core import (DATA_DIR, DEFAULT_GPU, DEFAULT_MODEL, LLM_SECRET_NAME,
                    T4_FAILURE_HINTS, app, data_volume)
@@ -104,11 +105,54 @@ def interpret_failure(generated_code: str, jr: JudgeResult, *,
 
     ``raw`` and ``category`` modes carry no hint (feedback is built from the
     JudgeResult fields directly). ``interpreted`` uses a deterministic lookup.
-    ``grounded`` is implemented by the interpreter module.
+    ``grounded`` calls the LLM and falls back to the deterministic hint on any error.
     """
     if jr["correct"] or mode in ("raw", "category"):
         return ""
-    return T4_FAILURE_HINTS.get(jr["failure_type"] or "", "Fix the reported error.")
+
+    base_hint = T4_FAILURE_HINTS.get(jr["failure_type"] or "", "Fix the reported error.")
+    if mode == "interpreted":
+        return base_hint
+    if mode != "grounded":
+        return base_hint
+
+    # Build a grounded prompt from the category, its deterministic hint, stderr tail, and the code.
+    failure_type = jr["failure_type"] or "other_runtime"
+    stderr = (jr["raw_stderr"] or "").strip()
+    diagnostic = (jr["diagnostic"] or "").strip()
+    stderr_tail = stderr[-2000:] if stderr else ""
+    evidence = stderr_tail or diagnostic
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a Triton (OpenAI Triton) GPU-kernel debugging assistant. "
+                "Given a failure category, the T4-specific hint, stderr/diagnostic, and the kernel code, "
+                "suggest one concrete, kernel-specific change that will likely fix the issue on an NVIDIA T4 (sm_75). "
+                "Be precise and actionable. Output only the fix/instruction, no preamble."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Failure category: {failure_type}\n"
+                f"Category hint: {base_hint}\n"
+                f"Stderr/diagnostic (tail):\n{evidence}\n\n"
+                f"Kernel code:\n{generated_code}\n\n"
+                "Task: Provide one concrete edit or small set of edits to this kernel to address the failure. "
+                "Mention exact tl.* ops, masks, types, and constants to change. "
+                "Do not restate the category; do not propose rewrites unrelated to the error."
+            ),
+        },
+    ]
+    try:
+        resp = llm._gen(messages, interp_model)
+        text = resp.content.strip()
+        return text or base_hint
+    except Exception:
+        # Network/model errors must not break the refine loop.
+        return base_hint
 
 
 def _build_feedback(jr: JudgeResult, hint: str, feedback_mode: str) -> str:
@@ -116,6 +160,8 @@ def _build_feedback(jr: JudgeResult, hint: str, feedback_mode: str) -> str:
         return f"The kernel failed on the target GPU. Raw error:\n{jr['raw_stderr'] or jr['diagnostic']}"
     if feedback_mode == "category":
         return f"The kernel failed on the target GPU with failure category: {jr['failure_type']}."
+    if feedback_mode in ("interpreted", "grounded"):
+        return f"The kernel failed on the target GPU ({jr['failure_type']}). {hint}"
     return f"The kernel failed on the target GPU ({jr['failure_type']}). {hint}"
 
 
@@ -172,7 +218,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
 )
 def generate_refine(
     gen_model: str = DEFAULT_MODEL,
-    interp_model: str = "",
+    interp_model: str = "openrouter/owl-alpha",
     dataset: str = "simp",
     limit: int | None = None,
     max_iters: int = 5,
@@ -203,6 +249,13 @@ def generate_refine(
 
     n = len(rows)
     passed = sum(r["passed"] for r in rows)
+
+    # Aggregate whether hints helped (fail -> pass or moved to less-severe category) across all opportunities.
+    hint_events = [b for r in rows for b in r.get("hint_helped_per_iter", [])]
+    opportunities = len(hint_events)
+    helped = sum(1 for b in hint_events if b)
+    help_rate = round(helped / opportunities, 4) if opportunities else None
+
     summary = {
         "n_operators": n,
         "passed": passed,
@@ -210,6 +263,12 @@ def generate_refine(
         "pass_at_1": round(sum(r["status_per_iter"][:1] == ["pass"] for r in rows) / n, 4) if n else None,
         "mean_iterations": round(sum(r["iterations"] for r in rows) / n, 2) if n else None,
         "feedback_mode": feedback_mode,
+        "hint_helped": {
+            "mode": feedback_mode,
+            "opportunities": opportunities,
+            "helped": helped,
+            "help_rate": help_rate,
+        },
     }
     (out_dir / "refine_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     data_volume.commit()
