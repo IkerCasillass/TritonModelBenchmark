@@ -128,6 +128,19 @@ T4_FAILURE_HINTS = {
     "register_overflow":   "Kernel needs more registers than the SM provides; reduce per-thread work, unrolling, or block size.",
     "invalid_block_size":  "Triton requires power-of-2 block sizes; pick the nearest power of 2.",
     "numerical_mismatch":  "It compiles and runs but the output differs from the PyTorch reference; revisit the math/indexing/masking.",
+
+    # Newly added categories
+    "triton_api_misuse": "Triton ops live under triton.language (tl) and run only inside @triton.jit; removed APIs like tl.libdevice/tl.extra are gone in Triton 3.x. Import triton.language as tl, add @triton.jit to kernels, and replace missing attrs with tl.math or supported tl ops.",
+    "triton_unsupported_construct": "Triton lowers a restricted subset of Python; dynamic lists/dicts, variable-length loops, and short-circuit booleans are not supported. Express control with masks/tl.where, use constexpr/static shapes, iterate over tl.arange ranges, and avoid Python-side flow in the kernel.",
+    "triton_compilation_error": "Generic Triton compile failure on sm_75 usually stems from shapes/dtypes or pointer math Triton cannot lower. Minimize the kernel, make shapes constexpr, ensure pointer math uses int32/int64, add explicit dtypes, and compile a small tile first.",
+    "model_abdication": "The code asserts the case is unsupported instead of implementing it. Remove the refusal and implement a masked, bounds-checked path that handles the test inputs.",
+    "code_error": "Python failed before Triton could JIT (SyntaxError/NameError/ImportError). Fix the Python error: ensure symbols are imported/defined, syntax is valid, and only call tl.* inside @triton.jit kernels.",
+    "other_runtime": "Runtime failed on T4 without a specific classifier; common causes are OOB or misaligned memory ops. Add bounds masks on every load/store, respect strides, and align pointers to element size.",
+
+    # Additional hardware/runtime categories to fully cover classifier outputs
+    "arch_unsupported": "The binary is not built for T4's sm_75. Avoid features that require newer SMs and ensure the kernel uses only sm_75-available ops and dtypes (fp32/fp16). Remove any hard-coded arch guards or sm_80+ intrinsics so Triton JIT targets sm_75.",
+    "oom": "CUDA ran out of memory on T4. Reduce BLOCK_SIZE/tile sizes, stage fewer elements in shared memory, avoid large temporaries, and chunk the computation so working sets fit.",
+    "illegal_memory_access": "Likely out-of-bounds or misaligned access. Add masks to every tl.load/tl.store, compute offsets with correct strides and element sizes, and pass mask/other=0 for out-of-bounds lanes.",
 }
 
 
