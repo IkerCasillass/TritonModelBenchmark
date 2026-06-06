@@ -12,8 +12,6 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from transformers import AutoConfig
-
 
 # Model slug. Override at import time if needed:
 #   import tritonbench.generator.llm_local as _loc; _loc._MODEL_ID = "..."
@@ -50,7 +48,7 @@ class _ConstrainedLLM:
 
         import torch
         import xgrammar as xgr
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
         self._tokenizer = AutoTokenizer.from_pretrained(_MODEL_ID, use_fast=True)
         self._model = AutoModelForCausalLM.from_pretrained(
@@ -76,7 +74,7 @@ class _ConstrainedLLM:
             xgr.GrammarCompiler(tokenizer_info).compile_grammar(grammar)
         )
 
-    def generate(self, messages: list[dict], max_new_tokens: int = 1024) -> str:
+    def generate(self, messages: list[dict], max_new_tokens: int = 2048) -> str:
         import torch
         from xgrammar.contrib.hf import LogitsProcessor
 
@@ -112,7 +110,7 @@ _llm = _ConstrainedLLM()
 # Public symbol
 # ---------------------------------------------------------------------------
 
-def _gen_constrained(messages: list[dict], max_new_tokens: int = 1024) -> str:
+def _gen_constrained(messages: list[dict], max_new_tokens: int = 2048) -> str:
     """Run Qwen with XGrammar-constrained decoding.
 
     Args:

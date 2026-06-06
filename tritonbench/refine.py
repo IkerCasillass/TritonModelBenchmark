@@ -18,9 +18,10 @@ from typing import TypedDict
 import modal
 
 from . import llm
+from . import llm_local
 from . import operators as _operators
-from .core import (DATA_DIR, DEFAULT_GPU, DEFAULT_MODEL, LLM_SECRET_NAME,
-                   T4_FAILURE_HINTS, app, data_volume)
+from .core import (DATA_DIR, DEFAULT_GPU, DEFAULT_INTERP_MODEL, DEFAULT_MODEL,
+                   LLM_SECRET_NAME, T4_FAILURE_HINTS, app, data_volume)
 from .generator import generate_kernel
 from .kernels import _classify_kernel_failure, _run_kernel_capture
 
@@ -165,19 +166,52 @@ def _build_feedback(jr: JudgeResult, hint: str, feedback_mode: str) -> str:
     return f"The kernel failed on the target GPU ({jr['failure_type']}). {hint}"
 
 
+def _progress_tier(jr: JudgeResult) -> int:
+    """How far the kernel got: 0 no-compile, 1 compiled, 2 ran, 3 correct."""
+    if jr["correct"]:
+        return 3
+    if jr["ran"]:
+        return 2
+    if jr["compiled"]:
+        return 1
+    return 0
+
+
 def _refine_one(operator_id: str, gen_model: str, interp_model: str,
                 max_iters: int = 5, feedback_mode: str = "interpreted") -> dict:
     history: list[dict] = []
     status_per_iter: list[str] = []
     ftype_per_iter: list[str | None] = []
+    tier_per_iter: list[int] = []
     final_code = ""
+    gen_error = ""
 
     for _ in range(max_iters):
-        code = generate_kernel(operator_id, history)
+        try:
+            code = generate_kernel(operator_id, history)
+        except Exception as exc:  # generation produced no usable code — feed back and retry
+            gen_error = str(exc)
+            status_per_iter.append("fail")
+            ftype_per_iter.append("generation_error")
+            tier_per_iter.append(0)
+            history.append({
+                "code": "",
+                "judge": {"compiled": False, "ran": False, "correct": False,
+                          "failure_type": "generation_error",
+                          "raw_stderr": gen_error, "diagnostic": ""},
+                "hint": "",
+                "feedback": (
+                    f"The previous attempt did not produce a usable kernel: {gen_error}. "
+                    "Return one complete, valid Python module — imports, the @triton.jit "
+                    "kernel, and the wrapper function."
+                ),
+            })
+            continue
         final_code = code
         jr = judge_kernel(code, operator_id)
         status_per_iter.append("pass" if jr["correct"] else "fail")
         ftype_per_iter.append(jr["failure_type"])
+        tier_per_iter.append(_progress_tier(jr))
         if jr["correct"]:
             break
         hint = interpret_failure(code, jr, interp_model=interp_model, mode=feedback_mode)
@@ -190,7 +224,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
 
     n = len(status_per_iter)
     hint_helped_per_iter = [
-        status_per_iter[i + 1] == "pass" or ftype_per_iter[i + 1] != ftype_per_iter[i]
+        tier_per_iter[i + 1] > tier_per_iter[i]
         for i in range(n - 1)
         if status_per_iter[i] == "fail"
     ]
@@ -207,6 +241,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
         "failure_type_per_iter": ftype_per_iter,
         "hint_helped_per_iter": hint_helped_per_iter,
         "final_code": final_code,
+        "gen_error": gen_error or None,
     }
 
 
@@ -218,7 +253,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
 )
 def generate_refine(
     gen_model: str = DEFAULT_MODEL,
-    interp_model: str = "openrouter/owl-alpha",
+    interp_model: str = DEFAULT_INTERP_MODEL,
     dataset: str = "simp",
     limit: int | None = None,
     max_iters: int = 5,
@@ -227,7 +262,8 @@ def generate_refine(
     concurrency: int = 4,
 ) -> dict:
     """Run the refine loop across operators and write per-operator trajectories and a summary."""
-    interp_model = interp_model or gen_model
+    interp_model = interp_model or DEFAULT_INTERP_MODEL
+    gen_model = llm_local._MODEL_ID
     _operators.build_registry(dataset, limit)
     operators = _operators.select_operators(limit)
 
@@ -258,6 +294,8 @@ def generate_refine(
 
     summary = {
         "n_operators": n,
+        "gen_model": gen_model,
+        "interp_model": interp_model,
         "passed": passed,
         "pass_rate": round(passed / n, 4) if n else None,
         "pass_at_1": round(sum(r["status_per_iter"][:1] == ["pass"] for r in rows) / n, 4) if n else None,
