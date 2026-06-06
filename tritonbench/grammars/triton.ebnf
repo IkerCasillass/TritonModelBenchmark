@@ -1,0 +1,215 @@
+# Triton kernel EBNF grammar for XGrammar-constrained generation.
+#
+# Key differences from original:
+#   - Blocks use Python newline + indentation (not { } and ;)
+#   - Keywords carry their trailing space inside string literals
+#   - 3 nesting levels: function body (4sp), if/for body (8sp), nested (12sp)
+#   - for loops, while loops, augmented assignment, return, pass
+#   - Shift operators <<  >>
+#   - Slice and multi-dim indexing  [i:j]  [:, None]
+#   - List literals  [BLOCK_M, BLOCK_N]
+#   - Float, scientific-notation, and hex number literals
+#   - Ternary expression  x if cond else y
+#   - Tuple assignment  a, b = ...
+#   - *args / **kwargs in call arguments
+#   - Comparison operators: not in / is not ordered before in / is
+
+root ::= program
+
+program ::= decorator "\n" function_def
+
+# ── Decorator ─────────────────────────────────────────────────────────────────
+
+decorator ::= "@triton.jit"
+
+# ── Function signature ────────────────────────────────────────────────────────
+
+function_def ::= "def " identifier "(" parameter_list? "):" "\n" l1_block
+
+parameter_list ::= parameter ("," " " parameter){0,31}
+
+parameter ::=
+      identifier ":" type_annotation "=" expr
+    | identifier ":" type_annotation
+    | identifier "=" expr
+    | identifier
+
+# tl.constexpr, tl.float32, etc. — any dotted name is a valid annotation
+type_annotation ::= qualified_name
+
+qualified_name ::= identifier ("." identifier){0,7}
+
+# ── Block structure — explicit Python indentation, 3 levels ──────────────────
+#
+#   l1  =  4 spaces  (function body)
+#   l2  =  8 spaces  (inside if / for / while at level 1)
+#   l3  = 12 spaces  (inside nested if / for / while)
+#
+# Compound statement headers sit at the OUTER level and include their
+# trailing ":\n" so the sub-block can start at the next indent level.
+
+l1_block ::= l1_stmt{1,64}
+
+l1_stmt ::=
+      "    " simple_stmt "\n"
+    | "    if " expr ":\n" l2_block ("    elif " expr ":\n" l2_block)* ("    else:\n" l2_block)?
+    | "    for " identifier " in " expr ":\n" l2_block
+    | "    while " expr ":\n" l2_block
+
+l2_block ::= l2_stmt{1,64}
+
+l2_stmt ::=
+      "        " simple_stmt "\n"
+    | "        if " expr ":\n" l3_block ("        elif " expr ":\n" l3_block)* ("        else:\n" l3_block)?
+    | "        for " identifier " in " expr ":\n" l3_block
+    | "        while " expr ":\n" l3_block
+
+l3_block ::= l3_stmt{1,64}
+
+l3_stmt ::= "            " simple_stmt "\n"
+
+# ── Simple statements ─────────────────────────────────────────────────────────
+
+simple_stmt ::=
+      aug_assignment
+    | assignment
+    | return_stmt
+    | pass_stmt
+    | expr_statement
+
+# Augmented assignment — spaces are baked into aug_op strings
+aug_assignment ::= target aug_op expr
+
+aug_op ::=
+      " += " | " -= " | " *= " | " /= " | " //= " | " %= "
+    | " &= " | " |= " | " ^= " | " <<= " | " >>= "
+
+# Assignment — tuple form first so `a, b = f()` is tried before plain `a = f()`
+assignment ::=
+      target_tuple " = " expr
+    | target " = " expr
+
+# Tuple target: two or more comma-separated identifiers (no parens required)
+target_tuple ::= identifier ("," " " identifier){1,15}
+
+# A single assignment / augmented-assignment target — a name with optional
+# attribute / subscript suffixes (x, x.y, ptr[offsets]). Crucially it does NOT
+# allow a call suffix "(...)", so `tl.store(...) //= expr` (assigning to a call
+# result — invalid Python, and a runaway entry point) is rejected outright.
+target ::= identifier target_suffix{0,8}
+target_suffix ::= "." identifier | "[" index_items "]"
+
+return_stmt ::= "return" (" " expr)?
+pass_stmt    ::= "pass"
+
+# A bare expression statement is always a call / attribute / subscript chain
+# (tl.store(...), tl.debug_barrier(), x.y, x[i]) — never a binary-operator chain.
+# Restricting to `postfix` (no binary ops) prevents garbage statements like
+#   tl.store(...) // foo <= 1234
+expr_statement ::= postfix
+
+# ── Expressions ───────────────────────────────────────────────────────────────
+
+# Ternary is the loosest-binding expression form
+expr ::=
+      logical_or " if " logical_or " else " logical_or
+    | logical_or
+
+# Every operator chain uses a BOUNDED repeat {0,N}, never `*`. An unbounded
+# chain lets constrained decoding loop forever (e.g. `a <= b <= c <= …`), which
+# is the observed runaway. The caps are generous — far beyond any real kernel
+# expression — but finite, so decoding must eventually exit the chain.
+logical_or  ::= logical_and (" or " logical_and){0,8}
+logical_and ::= logical_not (" and " logical_not){0,8}
+
+# "not" is a unary logical operator, NOT part of the arithmetic/bitwise chain
+logical_not ::= "not " comparison | comparison
+
+# Chained comparisons are rare and semantically suspect — cap tightly at 3.
+comparison ::= bitwise_or (comp_op bitwise_or){0,3}
+
+# Longer operators MUST come before their shorter prefixes:
+#   "not in" before "in",  "is not" before "is",  "<=" before "<",  ">=" before ">"
+comp_op ::=
+      " == " | " != " | " <= " | " >= " | " < " | " > "
+    | " not in " | " in "
+    | " is not " | " is "
+
+bitwise_or  ::= bitwise_xor (" | " bitwise_xor){0,8}
+bitwise_xor ::= bitwise_and (" ^ " bitwise_and){0,8}
+bitwise_and ::= shift (" & " shift){0,8}
+shift       ::= additive ((" << " | " >> ") additive){0,8}
+additive    ::= multiplicative ((" + " | " - ") multiplicative){0,32}
+multiplicative ::= unary ((" * " | " / " | " // " | " % ") unary){0,32}
+
+unary ::=
+      "-" unary
+    | "+" unary
+    | "~" unary
+    | postfix
+
+# ── Postfix (calls, indexing, attribute access) ───────────────────────────────
+
+postfix ::= primary suffix{0,8}
+
+suffix ::=
+      "(" argument_list? ")"
+    | "[" index_items "]"
+    | "." identifier
+
+# Multi-dimensional index: a[i, j],  a[:, None],  a[i:j, k:l]
+index_items ::= index_item ("," " " index_item){0,7}
+
+# Slice forms listed most-specific first to avoid partial matches
+index_item ::=
+      expr ":" expr ":" expr
+    | expr ":" expr
+    | expr ":"
+    | ":" expr ":" expr
+    | ":" expr
+    | ":"
+    | expr
+
+argument_list ::= argument ("," " " argument){0,15}
+
+argument ::=
+      "**" expr
+    | "*" expr
+    | identifier "=" expr
+    | expr
+
+# ── Primary expressions ───────────────────────────────────────────────────────
+
+primary ::=
+      none_literal
+    | boolean
+    | number
+    | string
+    | list_literal
+    | "(" expr ")"
+    | identifier
+
+# [BLOCK_M, BLOCK_N] shapes for tl.zeros / tl.full / tl.broadcast_to
+list_literal ::= "[" (expr ("," " " expr){0,31})? "]"
+
+# ── Terminals ─────────────────────────────────────────────────────────────────
+
+boolean      ::= "True" | "False"
+none_literal ::= "None"
+
+# Length bounds (the {0,N} caps) are essential, not cosmetic: an unbounded
+# char-class repeat like [0-9]+ lets constrained decoding emit a single digit
+# forever (the observed 1000-digit runaway). Every repeated class is capped.
+identifier ::= [a-zA-Z_] [a-zA-Z0-9_]{0,63}
+
+# Numeric literals — hex and float MUST precede plain int to avoid prefix ambiguity
+number   ::= hex_int | float_num | int_num
+int_num  ::= [0-9]{1,20}
+hex_int  ::= "0" [xX] [0-9a-fA-F]{1,16}
+float_num ::=
+      [0-9]{1,20} "." [0-9]{0,20} ([eE] [+-]? [0-9]{1,4})?
+    | "." [0-9]{1,20} ([eE] [+-]? [0-9]{1,4})?
+    | [0-9]{1,20} [eE] [+-]? [0-9]{1,4}
+
+# Single- and double-quoted strings; no raw newlines allowed inside
+string ::= "\"" [^"\n]{0,200} "\"" | "'" [^'\n]{0,200} "'"
