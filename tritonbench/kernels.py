@@ -153,19 +153,23 @@ def _probe_kernel_file(path: Path, timeout: int = KERNEL_TIMEOUT) -> tuple[int, 
         return -1, str(exc)
 
 
-def _run_kernel_capture(path: Path) -> tuple[int, str, str]:
-    """Like _probe_kernel_file but also returns stdout (needed for timing)."""
+def _run_kernel_capture(path: Path, timeout: int = KERNEL_TIMEOUT) -> tuple[int, str, str]:
+    """Like _probe_kernel_file but also returns stdout (needed for timing).
+
+    ``timeout`` is overridable so callers (e.g. the refine judge) can cap hanging
+    candidate kernels more aggressively than the default.
+    """
     try:
         proc = subprocess.run(
             [sys.executable, str(path)],
             capture_output=True,
             text=True,
-            timeout=KERNEL_TIMEOUT,
+            timeout=timeout,
             preexec_fn=_set_mem_limit,
         )
         return proc.returncode, proc.stdout, proc.stderr
     except subprocess.TimeoutExpired:
-        return -1, "", f"TimeoutExpired: kernel did not complete within {KERNEL_TIMEOUT}s"
+        return -1, "", f"TimeoutExpired: kernel did not complete within {timeout}s"
     except Exception as exc:
         return -1, "", str(exc)
 

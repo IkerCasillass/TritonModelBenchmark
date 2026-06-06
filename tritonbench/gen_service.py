@@ -36,7 +36,7 @@ gen_image = (
     gpu=GEN_GPU,
     image=gen_image,
     volumes={"/root/.cache/huggingface": _hf_cache},
-    timeout=60 * 30,
+    timeout=60 * 10,   # hard ceiling: no single generation should run longer
 )
 # One warm container batches the loop's concurrent generations.
 @modal.concurrent(max_inputs=16)

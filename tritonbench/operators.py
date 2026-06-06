@@ -1,12 +1,19 @@
 """TritonBench-T operator registry: loads operator specs and caches golden stdout."""
 from __future__ import annotations
 
+import builtins
 import json
 import os
 import sys
 import tempfile
 from pathlib import Path
 from typing import TypedDict
+
+# Operators whose name is a Python builtin (abs, sum, min, max, pow, ...) are
+# unreliable: the test calls `name(...)`, which silently resolves to the builtin
+# (often computing the right answer) when the model doesn't define it — a false
+# pass. Excluded in suite mode; explicit `operators=` targeting still allows them.
+_BUILTIN_NAMES = frozenset(dir(builtins))
 
 from .core import REPO_DIR
 from .kernels import _run_kernel_capture
@@ -109,6 +116,9 @@ def build_registry(dataset: str = "simp", limit: int | None = None,
 
     for item, test, fname in zip(items, tests, files):
         if want is not None and fname not in want:
+            continue
+        if want is None and fname.removesuffix(".py") in _BUILTIN_NAMES:
+            dropped += 1
             continue
         considered += 1
         if not fname or not test:

@@ -223,6 +223,7 @@ def refine_loop(
     gen_backend: str = "local",
     gen_constrained: bool = True,
     operator: str = "",
+    concurrency: int = 2,
 ):
     """Hardware-in-the-loop generate -> run -> refine loop.
 
@@ -246,6 +247,7 @@ def refine_loop(
         output_subdir=output_subdir,
         gen_backend=gen_backend,
         gen_constrained=gen_constrained,
+        concurrency=concurrency,
     )
     print(json.dumps(summary, indent=2))
 
