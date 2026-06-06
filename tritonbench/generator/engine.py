@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 from ..llm import _extract_code, _is_valid_python
-from ..llm_local import _gen_constrained
 from ..operators import get_instruction
+from .backends import get_backend
 from .prompting import build_system_prompt, build_user_prompt
 from .refinement import build_messages
 
@@ -31,7 +31,7 @@ def generate_kernel(operator_id: str, history: list[dict]) -> str:
     messages = build_messages(operator_id, history, system_prompt, user_prompt)
 
     try:
-        raw = _gen_constrained(messages)
+        raw = get_backend().generate(messages)
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
             f"kernel generation failed for {operator_id}: {exc}"

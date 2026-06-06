@@ -12,6 +12,7 @@ from .mutate import generate_mutations
 from .awareness import build_awareness_set, hardware_eval
 from .refine import generate_refine, judge_kernel, list_operators
 from .operators import build_registry, select_operators, get_operator
+from . import gen_service  # noqa: F401  — registers ConstrainedGenerator with the app
 
 def _upload_local_predictions(local_path: Path) -> str:
     """Upload a local predictions.jsonl to the volume; return its remote path."""
@@ -215,11 +216,11 @@ def refine_loop(
     gen_model: str = DEFAULT_MODEL,
     interp_model: str = DEFAULT_INTERP_MODEL,
     limit: int = 0,
-    operator: str = "",
-    max_iters: int = 5,
+    max_iters: int = 3,
     feedback_mode: str = "interpreted",
     output_subdir: str = "refine",
     gpu: str = DEFAULT_GPU,
+    gen_backend: str = "local",
 ):
     """Hardware-in-the-loop generate -> run -> refine loop.
 
@@ -241,6 +242,7 @@ def refine_loop(
         max_iters=max_iters,
         feedback_mode=feedback_mode,
         output_subdir=output_subdir,
+        gen_backend=gen_backend,
     )
     print(json.dumps(summary, indent=2))
 
