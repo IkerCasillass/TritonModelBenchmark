@@ -1,6 +1,21 @@
-"""Prompt construction for hardware-aware kernel generation."""
+"""Prompt construction for hardware-aware kernel generation.
+
+These prompts drive the GRAMMAR-CONSTRAINED path (engine.generate_kernel +
+grammars/triton.ebnf). They instruct the model to emit exactly what the grammar
+permits — a @triton.jit kernel plus a plain host wrapper — and nothing the
+grammar/pipeline supplies for free (imports are injected in engine._IMPORTS).
+"""
 from ..core import T4_HARDWARE
-from ..llm import PROMPT_HEADER
+
+# Role/intro for the constrained path. Unlike llm.PROMPT_HEADER (the cloud path,
+# which asks for a full self-contained, fenced module), this header asks only for
+# kernel + wrapper logic; imports and the code-fence are handled elsewhere.
+_CONSTRAINED_HEADER = (
+    "You are an expert in Triton (OpenAI Triton) GPU programming. Given a "
+    "functional description and a target signature, write a correct Triton kernel "
+    "and a host wrapper function that launches it. The wrapper must fully match "
+    "the described function signature."
+)
 
 # Hardware information used to build T4-specific prompts
 _GPU_NAME = T4_HARDWARE["name"]
@@ -42,21 +57,32 @@ Avoid:
 - Generating explanations instead of code.
 """
 
-# Expected output format for the generated response
+# Expected output format — must match exactly what grammars/triton.ebnf emits.
 _OUTPUT_RULES = """
-Return a single Python code block only.
-Do not include explanations.
-Do not include test code.
+Output exactly two top-level definitions, in this order, separated by one blank line:
+  1. The @triton.jit kernel function.
+  2. A plain (undecorated) host wrapper function that allocates the output
+     tensor(s) and launches the kernel with a grid, e.g. kernel_name[grid](...).
+
+Strict format rules:
+- Do NOT write any import statements — torch, triton, and triton.language as tl
+  are already imported.
+- Do NOT use markdown fences, backticks, comments, or explanations.
+- Do NOT include test code.
+- The wrapper's name and parameters MUST match the signature in the description,
+  and it must return the result the description specifies.
 """
 
 
 def build_system_prompt() -> str:
-    """
-    Builds the system prompt used during kernel generation.
-    Combines the base Triton instructions with T4-specific constraints.
+    """Build the system prompt for the grammar-constrained path.
+
+    Combines the constrained-path role header, the T4 hardware rules and
+    common-mistake guidance (which steer the kernel body and stay valid under the
+    grammar), and the kernel+wrapper output rules that match grammars/triton.ebnf.
     """
     return "\n\n".join([
-        PROMPT_HEADER,
+        _CONSTRAINED_HEADER,
         _HARDWARE_RULES,
         _COMMON_MISTAKES,
         _OUTPUT_RULES,
@@ -70,6 +96,7 @@ def build_user_prompt(operator_id: str, instruction: str) -> str:
     return (
         f"Operator: {operator_id}\n\n"
         f"{instruction}\n\n"
-        "Generate a valid Triton implementation."
+        "Generate the Triton kernel and a host wrapper that matches the "
+        "described function signature."
     )
 
