@@ -27,6 +27,9 @@ REPO_DIR = "/opt/TritonBench"
 #   "microsoft/phi-3-mini-128k-instruct:free"
 DEFAULT_MODEL = "anthropic/claude-sonnet-4-5"
 
+# Default interpreter model (failure -> fix-hint). OpenRouter slug, kept cheap.
+DEFAULT_INTERP_MODEL = "openrouter/owl-alpha"
+
 # Name of the Modal Secret that holds OPENROUTER_API_KEY.
 # Override with an env var if your existing secret is named differently:
 #     export TRITONBENCH_LLM_SECRET=my-other-secret
@@ -83,9 +86,10 @@ image = (
         "tqdm==4.66.5",
         "numpy<2",
         "openai>=1.50",
-        "psutil>=5.9",  
-        "xgrammar>=0.1.5", 
-        "transformers>=4.44" # memory diagnostics
+        "psutil>=5.9",
+        "xgrammar>=0.1.5",
+        "transformers==4.46.3",
+        "accelerate==1.1.1",
     )
     .run_commands(f"git clone --depth 1 {TRITONBENCH_REPO} {REPO_DIR}")
     .run_commands(PATCH_CALL_ACC, PATCH_EXE_ACC, PATCH_PERF)
@@ -148,7 +152,7 @@ T4_FAILURE_HINTS = {
 
 __all__ = [
     "APP_NAME", "TRITONBENCH_REPO", "DEFAULT_GPU", "VOLUME_NAME", "DATA_DIR",
-    "REPO_DIR", "DEFAULT_MODEL", "LLM_SECRET_NAME", "MAX_RETRIES",
+    "REPO_DIR", "DEFAULT_MODEL", "DEFAULT_INTERP_MODEL", "LLM_SECRET_NAME", "MAX_RETRIES",
     "RETRY_BASE_DELAY", "KERNEL_TIMEOUT", "VIRT_MEM_BYTES",
     "image", "app", "data_volume", "T4_HARDWARE", "T4_FAILURE_HINTS",
 ]

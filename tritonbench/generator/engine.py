@@ -2,20 +2,10 @@
 from __future__ import annotations
 
 from ..llm import _extract_code, _is_valid_python
-from .llm_local import _gen_constrained  # ← NEW: grammar-constrained Qwen path
+from ..llm_local import _gen_constrained
+from ..operators import get_instruction
 from .prompting import build_system_prompt, build_user_prompt
 from .refinement import build_messages
-
-
-def _resolve_instruction(operator_id: str, history: list[dict]) -> str:
-    """Best-effort task text lookup without hardcoding prompt content."""
-    for entry in reversed(history):
-        if not isinstance(entry, dict):
-            continue
-        instruction = entry.get("instruction") or entry.get("prompt") or entry.get("task")
-        if isinstance(instruction, str) and instruction.strip():
-            return instruction
-    return operator_id
 
 
 def generate_kernel(operator_id: str, history: list[dict]) -> str:
@@ -26,26 +16,29 @@ def generate_kernel(operator_id: str, history: list[dict]) -> str:
     ``llm._extract_code`` / ``_is_valid_python``.
     ``history`` carries prior attempts and their feedback.
     """
-    instruction = _resolve_instruction(operator_id, history)
+    try:
+        instruction = get_instruction(operator_id)
+    except KeyError:
+        instruction = operator_id
     system_prompt = build_system_prompt()
     user_prompt = build_user_prompt(operator_id, instruction)
     messages = build_messages(operator_id, history, system_prompt, user_prompt)
 
     try:
-        raw = _gen_constrained(messages)  # ← CHANGED: was _gen(messages, DEFAULT_MODEL)
+        raw = _gen_constrained(messages)
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(
             f"kernel generation failed for {operator_id}: {exc}"
         ) from exc
 
-    code = _extract_code(raw)  # ← CHANGED: was _extract_code(result.content)
+    code = _extract_code(raw)
     if not code.strip():
         raise ValueError(
-            f"LLM returned an empty code payload for {operator_id}"
+            f"LLM returned an empty code payload for {operator_id}: {raw[:800]!r}"
         )
     if not _is_valid_python(code):
         raise ValueError(
-            f"LLM returned invalid Python for {operator_id}"
+            f"LLM returned invalid Python for {operator_id}: {code[:800]!r}"
         )
     return code
 

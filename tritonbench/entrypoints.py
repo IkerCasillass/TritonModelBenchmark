@@ -5,7 +5,7 @@ import json
 import time
 from pathlib import Path
 
-from .core import DEFAULT_GPU, DEFAULT_MODEL, VOLUME_NAME, app, data_volume
+from .core import DEFAULT_GPU, DEFAULT_INTERP_MODEL, DEFAULT_MODEL, VOLUME_NAME, app, data_volume
 from .generate import generate_predictions
 from .evaluate import evaluate
 from .mutate import generate_mutations
@@ -213,7 +213,7 @@ def generate_only(
 @app.local_entrypoint()
 def refine_loop(
     gen_model: str = DEFAULT_MODEL,
-    interp_model: str = "",
+    interp_model: str = DEFAULT_INTERP_MODEL,
     limit: int = 0,
     max_iters: int = 5,
     feedback_mode: str = "interpreted",
