@@ -50,12 +50,50 @@ class ConstrainedGenerator:
         self._llm = LLM(model=GEN_MODEL_ID, dtype="float16", gpu_memory_utilization=0.9,
                         enforce_eager=True, max_model_len=4096)
         self._grammar = _GRAMMAR_PATH.read_text(encoding="utf-8")
+        self._struct_api = self._probe_structured_api(self._grammar)
 
-    # constrained defaults off until the grammar is corrected (see GENERATOR_HANDOFF.md);
-    # unconstrained generation is also the baseline arm of the constrained-vs-free ablation.
+    @staticmethod
+    def _probe_structured_api(grammar: str) -> str | None:
+        """Return the name of the grammar-constraint API this vLLM accepts.
+
+        vLLM renamed `guided_decoding` -> `structured_outputs` across versions, so
+        the right param can't be hard-coded. Probe once by constructing a throwaway
+        SamplingParams (import success alone does not prove the kwarg is accepted).
+        """
+        from vllm import SamplingParams
+
+        try:
+            from vllm.sampling_params import StructuredOutputsParams
+            SamplingParams(temperature=0.0, max_tokens=8,
+                           structured_outputs=StructuredOutputsParams(grammar=grammar))
+            print("[gen_service] structured-outputs API: structured_outputs", flush=True)
+            return "structured_outputs"
+        except Exception:
+            pass
+        try:
+            from vllm.sampling_params import GuidedDecodingParams
+            SamplingParams(temperature=0.0, max_tokens=8,
+                           guided_decoding=GuidedDecodingParams(grammar=grammar, backend="xgrammar"))
+            print("[gen_service] structured-outputs API: guided_decoding", flush=True)
+            return "guided_decoding"
+        except Exception:
+            pass
+        print("[gen_service] WARNING: no supported structured-outputs API found; "
+              "constrained generation disabled (running unconstrained).", flush=True)
+        return None
+
+    def _structured_kwargs(self) -> dict:
+        if self._struct_api == "structured_outputs":
+            from vllm.sampling_params import StructuredOutputsParams
+            return {"structured_outputs": StructuredOutputsParams(grammar=self._grammar)}
+        if self._struct_api == "guided_decoding":
+            from vllm.sampling_params import GuidedDecodingParams
+            return {"guided_decoding": GuidedDecodingParams(grammar=self._grammar, backend="xgrammar")}
+        return {}
+
     @modal.method()
     def generate(self, messages: list[dict], max_new_tokens: int = 2048,
-                 constrained: bool = False) -> str:
+                 constrained: bool = True) -> str:
         from vllm import SamplingParams
 
         tokenizer = self._llm.get_tokenizer()
@@ -63,11 +101,11 @@ class ConstrainedGenerator:
             messages, tokenize=False, add_generation_prompt=True
         )
 
-        kwargs = {"temperature": 0.0, "max_tokens": max_new_tokens}
+        # repetition_penalty breaks greedy degenerate loops (a CFG can't stop a
+        # model repeating a valid statement).
+        kwargs = {"temperature": 0.0, "max_tokens": max_new_tokens,
+                  "repetition_penalty": 1.3}
         if constrained:
-            from vllm.sampling_params import GuidedDecodingParams
-            kwargs["guided_decoding"] = GuidedDecodingParams(
-                grammar=self._grammar, backend="xgrammar"
-            )
+            kwargs.update(self._structured_kwargs())
         out = self._llm.generate([prompt], SamplingParams(**kwargs))
         return out[0].outputs[0].text

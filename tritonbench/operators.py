@@ -118,8 +118,23 @@ def build_registry(dataset: str = "simp", limit: int | None = None,
         if not gold_path.exists():
             dropped += 1
             continue
-        rc, stdout, _ = _run_kernel_capture(gold_path)
-        if rc != 0:
+        # Capture the reference output the SAME way judge_kernel runs candidates:
+        # gold code + "#"*146 + test. The bare gold file is solution code only —
+        # the test harness is what prints — so running it alone yields empty
+        # output and every non-crashing kernel would match trivially (false pass).
+        # The harness leaves outputs in `test_results` without printing; append a
+        # print so the reference output is actually captured for comparison.
+        combined = (gold_path.read_text() + "\n" + "#" * 146 + "\n" + test
+                    + "\nprint(test_results)\n")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as gf:
+            gtmp = gf.name
+            gf.write(combined)
+        try:
+            rc, stdout, _ = _run_kernel_capture(Path(gtmp))
+        finally:
+            Path(gtmp).unlink(missing_ok=True)
+        # Drop golden errors AND empty-output goldens (unjudgeable).
+        if rc != 0 or not stdout.strip():
             dropped += 1
             continue
         _OPERATOR_REGISTRY[fname] = {

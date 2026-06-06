@@ -4,7 +4,7 @@
 #   - Blocks use Python newline + indentation (not { } and ;)
 #   - Keywords carry their trailing space inside string literals
 #   - 3 nesting levels: function body (4sp), if/for body (8sp), nested (12sp)
-#   - for loops, while loops, augmented assignment, return, pass
+#   - for loops, while loops, augmented assignment, return
 #   - Shift operators <<  >>
 #   - Slice and multi-dim indexing  [i:j]  [:, None]
 #   - List literals  [BLOCK_M, BLOCK_N]
@@ -54,7 +54,11 @@ qualified_name ::= identifier ("." identifier){0,7}
 # Compound statement headers sit at the OUTER level and include their
 # trailing ":\n" so the sub-block can start at the next indent level.
 
-l1_block ::= l1_stmt{1,64}
+# A return ends the function: statements, then an OPTIONAL trailing return and
+# nothing after it. Once the wrapper returns, the program is complete and
+# constrained decoding forces EOS — the model cannot append trailing prose.
+l1_block ::= l1_stmt{1,48} l1_return?
+l1_return ::= "    return" (" " expr)? "\n"
 
 l1_stmt ::=
       "    " simple_stmt "\n"
@@ -62,7 +66,7 @@ l1_stmt ::=
     | "    for " identifier " in " expr ":\n" l2_block
     | "    while " expr ":\n" l2_block
 
-l2_block ::= l2_stmt{1,64}
+l2_block ::= l2_stmt{1,32}
 
 l2_stmt ::=
       "        " simple_stmt "\n"
@@ -70,7 +74,7 @@ l2_stmt ::=
     | "        for " identifier " in " expr ":\n" l3_block
     | "        while " expr ":\n" l3_block
 
-l3_block ::= l3_stmt{1,64}
+l3_block ::= l3_stmt{1,32}
 
 l3_stmt ::= "            " simple_stmt "\n"
 
@@ -79,8 +83,6 @@ l3_stmt ::= "            " simple_stmt "\n"
 simple_stmt ::=
       aug_assignment
     | assignment
-    | return_stmt
-    | pass_stmt
     | expr_statement
 
 # Augmented assignment — spaces are baked into aug_op strings
@@ -105,8 +107,6 @@ target_tuple ::= identifier ("," " " identifier){1,15}
 target ::= identifier target_suffix{0,8}
 target_suffix ::= "." identifier | "[" index_items "]"
 
-return_stmt ::= "return" (" " expr)?
-pass_stmt    ::= "pass"
 
 # A bare expression statement is always a call / attribute / subscript chain
 # (tl.store(...), tl.debug_barrier(), x.y, x[i]) — never a binary-operator chain.
@@ -116,10 +116,15 @@ expr_statement ::= postfix
 
 # ── Expressions ───────────────────────────────────────────────────────────────
 
-# Ternary is the loosest-binding expression form
+# Ternary is the loosest-binding expression form; lambda is lower still.
 expr ::=
-      logical_or " if " logical_or " else " logical_or
+      lambda_expr
+    | logical_or " if " logical_or " else " logical_or
     | logical_or
+
+# Grid lambdas: grid = lambda meta: (triton.cdiv(n, meta["BLOCK_SIZE"]),)
+# Without this the model derails trying to emit the idiomatic launch grid.
+lambda_expr ::= "lambda " identifier ("," " " identifier){0,3} ": " expr
 
 # Every operator chain uses a BOUNDED repeat {0,N}, never `*`. An unbounded
 # chain lets constrained decoding loop forever (e.g. `a <= b <= c <= …`), which
@@ -145,8 +150,8 @@ bitwise_or  ::= bitwise_xor (" | " bitwise_xor){0,8}
 bitwise_xor ::= bitwise_and (" ^ " bitwise_and){0,8}
 bitwise_and ::= shift (" & " shift){0,8}
 shift       ::= additive ((" << " | " >> ") additive){0,8}
-additive    ::= multiplicative ((" + " | " - ") multiplicative){0,32}
-multiplicative ::= unary ((" * " | " / " | " // " | " % ") unary){0,32}
+additive    ::= multiplicative ((" + " | " - ") multiplicative){0,4}
+multiplicative ::= unary ((" * " | " / " | " // " | " % ") unary){0,4}
 
 unary ::=
       "-" unary

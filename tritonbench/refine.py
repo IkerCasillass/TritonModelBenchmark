@@ -60,7 +60,10 @@ def judge_kernel(generated_code: str, operator_id: str) -> JudgeResult:
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as fh:
         tmp = fh.name
-        fh.write(generated_code + "\n" + "#" * 146 + "\n" + spec["test_code"])
+        # Append print(test_results) so the harness's collected outputs reach
+        # stdout — captured identically for the golden, so the compare is real.
+        fh.write(generated_code + "\n" + "#" * 146 + "\n" + spec["test_code"]
+                 + "\nprint(test_results)\n")
 
     try:
         with _gpu_lock:
@@ -79,13 +82,15 @@ def judge_kernel(generated_code: str, operator_id: str) -> JudgeResult:
             "diagnostic": "",
         }
 
-    if stdout.rstrip() == spec["golden_stdout"].rstrip():
+    golden = spec["golden_stdout"].rstrip()
+    # Require a non-empty golden: matching an empty reference is a false pass.
+    if golden and stdout.rstrip() == golden:
         return {
             "compiled": True, "ran": True, "correct": True,
             "failure_type": None, "raw_stderr": "", "diagnostic": "",
         }
 
-    expected = spec["golden_stdout"].rstrip().splitlines()
+    expected = golden.splitlines()
     actual = stdout.rstrip().splitlines()
     diagnostic = next(
         (f"line {i + 1}: expected {e!r}, got {a!r}"
@@ -183,6 +188,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
     status_per_iter: list[str] = []
     ftype_per_iter: list[str | None] = []
     tier_per_iter: list[int] = []
+    hint_per_iter: list[str] = []
     final_code = ""
     gen_error = ""
 
@@ -194,6 +200,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
             status_per_iter.append("fail")
             ftype_per_iter.append("generation_error")
             tier_per_iter.append(0)
+            hint_per_iter.append("")
             history.append({
                 "code": "",
                 "judge": {"compiled": False, "ran": False, "correct": False,
@@ -213,8 +220,10 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
         ftype_per_iter.append(jr["failure_type"])
         tier_per_iter.append(_progress_tier(jr))
         if jr["correct"]:
+            hint_per_iter.append("")
             break
         hint = interpret_failure(code, jr, interp_model=interp_model, mode=feedback_mode)
+        hint_per_iter.append(hint[:1000])
         history.append({
             "code": code,
             "judge": jr,
@@ -239,6 +248,8 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
         "iterations": len(status_per_iter),
         "status_per_iter": status_per_iter,
         "failure_type_per_iter": ftype_per_iter,
+        "tier_per_iter": tier_per_iter,
+        "hint_per_iter": hint_per_iter,
         "hint_helped_per_iter": hint_helped_per_iter,
         "final_code": final_code,
         "gen_error": gen_error or None,
@@ -256,11 +267,13 @@ def generate_refine(
     interp_model: str = DEFAULT_INTERP_MODEL,
     dataset: str = "simp",
     limit: int | None = None,
+    operators: list[str] | None = None,
     max_iters: int = 3,
     feedback_mode: str = "interpreted",
     output_subdir: str = "refine",
     concurrency: int = 4,
     gen_backend: str = "local",
+    gen_constrained: bool = True,
 ) -> dict:
     """Run the refine loop across operators and write per-operator trajectories and a summary.
 
@@ -270,13 +283,16 @@ def generate_refine(
     """
     interp_model = interp_model or DEFAULT_INTERP_MODEL
     backends.set_active_backend(gen_backend)
+    backends.set_constrained(gen_constrained)
     if gen_backend == "vllm":
         from . import gen_service
         gen_model = gen_service.GEN_MODEL_ID
     else:
         gen_model = llm_local._MODEL_ID
-    _operators.build_registry(dataset, limit)
-    operators = _operators.select_operators(limit)
+    # When `operators` is set, build_registry runs only those goldens (not the
+    # whole suite), so a single-operator run doesn't pay for all 166.
+    _operators.build_registry(dataset, limit, operators=operators)
+    op_ids = _operators.select_operators()
 
     _worker = functools.partial(
         _refine_one,
@@ -286,7 +302,7 @@ def generate_refine(
         feedback_mode=feedback_mode,
     )
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
-        rows = list(ex.map(_worker, operators))
+        rows = list(ex.map(_worker, op_ids))
 
     out_dir = Path(DATA_DIR) / output_subdir
     out_dir.mkdir(parents=True, exist_ok=True)

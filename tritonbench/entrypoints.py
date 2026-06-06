@@ -221,6 +221,8 @@ def refine_loop(
     output_subdir: str = "refine",
     gpu: str = DEFAULT_GPU,
     gen_backend: str = "local",
+    gen_constrained: bool = True,
+    operator: str = "",
 ):
     """Hardware-in-the-loop generate -> run -> refine loop.
 
@@ -243,6 +245,7 @@ def refine_loop(
         feedback_mode=feedback_mode,
         output_subdir=output_subdir,
         gen_backend=gen_backend,
+        gen_constrained=gen_constrained,
     )
     print(json.dumps(summary, indent=2))
 
@@ -276,6 +279,26 @@ def run():
 
 run()
 """
+
+
+@app.function(gpu=DEFAULT_GPU, timeout=600)
+def _inspect_golden(operator: str, dataset: str = "simp") -> dict:
+    from . import operators as _ops
+    oid = operator if operator.endswith(".py") else f"{operator}.py"
+    _ops.build_registry(dataset, None, operators=[operator])
+    try:
+        g = _ops.get_operator(oid)["golden_stdout"]
+        return {"oid": oid, "dropped": False, "golden_len": len(g), "golden_head": g[:300]}
+    except KeyError:
+        return {"oid": oid, "dropped": True}
+
+
+@app.local_entrypoint()
+def inspect_golden(operator: str, dataset: str = "simp", gpu: str = DEFAULT_GPU):
+    """Print an operator's cached golden stdout — to check it isn't empty
+    (empty golden => any non-crashing kernel trivially 'passes')."""
+    print(json.dumps(_inspect_golden.with_options(gpu=gpu).remote(
+        operator=operator, dataset=dataset), indent=2))
 
 
 @app.function(gpu=DEFAULT_GPU, timeout=600)

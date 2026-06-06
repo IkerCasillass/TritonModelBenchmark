@@ -23,11 +23,15 @@ class LocalConstrainedBackend:
 
 
 class VLLMRemoteBackend:
-    """Grammar-constrained vLLM on a dedicated GPU, called over RPC."""
+    """Grammar-constrained vLLM on a dedicated GPU, called over RPC.
+
+    Honours the module-level `_constrained` toggle; the local backend is always
+    grammar-constrained, so the unconstrained ablation arm runs on this backend.
+    """
 
     def generate(self, messages: list[dict]) -> str:
         from ..gen_service import ConstrainedGenerator
-        return ConstrainedGenerator().generate.remote(messages)
+        return ConstrainedGenerator().generate.remote(messages, constrained=_constrained)
 
 
 _BACKENDS: dict[str, type] = {
@@ -36,6 +40,7 @@ _BACKENDS: dict[str, type] = {
 }
 
 _active = "local"
+_constrained = True
 
 
 def set_active_backend(name: str) -> None:
@@ -43,6 +48,11 @@ def set_active_backend(name: str) -> None:
         raise ValueError(f"unknown gen backend {name!r}; choices: {sorted(_BACKENDS)}")
     global _active
     _active = name
+
+
+def set_constrained(flag: bool) -> None:
+    global _constrained
+    _constrained = bool(flag)
 
 
 def get_backend(name: str | None = None) -> GenerationBackend:
