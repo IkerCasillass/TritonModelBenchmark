@@ -11,6 +11,7 @@ import functools
 import json
 import tempfile
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TypedDict
@@ -23,7 +24,8 @@ from . import operators as _operators
 from .core import (DATA_DIR, DEFAULT_GPU, DEFAULT_INTERP_MODEL, DEFAULT_MODEL,
                    LLM_SECRET_NAME, T4_FAILURE_HINTS, app, data_volume)
 from .generator import backends, generate_kernel
-from .kernels import _classify_kernel_failure, _run_kernel_capture
+from .kernels import (HARDWARE_FAILURE_TYPES, _classify_kernel_failure,
+                      _run_kernel_capture)
 
 
 class JudgeResult(TypedDict):
@@ -48,6 +50,12 @@ _COMPILE_FAILURE_TYPES = frozenset({
 # Serialises GPU subprocesses: a single T4 cannot safely run concurrent kernels.
 _gpu_lock = threading.Lock()
 
+# Guards against runaway kernels. Candidate kernels often hang (bad loops/launch);
+# cap each judge well under the default, and cap total time spent per operator so
+# one operator can't burn the whole run on repeated timeouts.
+JUDGE_TIMEOUT = 30          # seconds per candidate kernel run
+OPERATOR_BUDGET = 240       # seconds total across an operator's iterations
+
 
 def judge_kernel(generated_code: str, operator_id: str) -> JudgeResult:
     """Compile and run the kernel on the target GPU; check against the cached reference output.
@@ -60,11 +68,14 @@ def judge_kernel(generated_code: str, operator_id: str) -> JudgeResult:
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as fh:
         tmp = fh.name
-        fh.write(generated_code + "\n" + "#" * 146 + "\n" + spec["test_code"])
+        # Append print(test_results) so the harness's collected outputs reach
+        # stdout — captured identically for the golden, so the compare is real.
+        fh.write(generated_code + "\n" + "#" * 146 + "\n" + spec["test_code"]
+                 + "\nprint(test_results)\n")
 
     try:
         with _gpu_lock:
-            rc, stdout, stderr = _run_kernel_capture(Path(tmp))
+            rc, stdout, stderr = _run_kernel_capture(Path(tmp), timeout=JUDGE_TIMEOUT)
     finally:
         Path(tmp).unlink(missing_ok=True)
 
@@ -79,13 +90,15 @@ def judge_kernel(generated_code: str, operator_id: str) -> JudgeResult:
             "diagnostic": "",
         }
 
-    if stdout.rstrip() == spec["golden_stdout"].rstrip():
+    golden = spec["golden_stdout"].rstrip()
+    # Require a non-empty golden: matching an empty reference is a false pass.
+    if golden and stdout.rstrip() == golden:
         return {
             "compiled": True, "ran": True, "correct": True,
             "failure_type": None, "raw_stderr": "", "diagnostic": "",
         }
 
-    expected = spec["golden_stdout"].rstrip().splitlines()
+    expected = golden.splitlines()
     actual = stdout.rstrip().splitlines()
     diagnostic = next(
         (f"line {i + 1}: expected {e!r}, got {a!r}"
@@ -183,10 +196,14 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
     status_per_iter: list[str] = []
     ftype_per_iter: list[str | None] = []
     tier_per_iter: list[int] = []
+    hint_per_iter: list[str] = []
     final_code = ""
     gen_error = ""
 
+    deadline = time.monotonic() + OPERATOR_BUDGET
     for _ in range(max_iters):
+        if time.monotonic() > deadline:
+            break  # operator budget exhausted (e.g. repeated timeouts)
         try:
             code = generate_kernel(operator_id, history)
         except Exception as exc:  # generation produced no usable code — feed back and retry
@@ -194,6 +211,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
             status_per_iter.append("fail")
             ftype_per_iter.append("generation_error")
             tier_per_iter.append(0)
+            hint_per_iter.append("")
             history.append({
                 "code": "",
                 "judge": {"compiled": False, "ran": False, "correct": False,
@@ -213,8 +231,10 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
         ftype_per_iter.append(jr["failure_type"])
         tier_per_iter.append(_progress_tier(jr))
         if jr["correct"]:
+            hint_per_iter.append("")
             break
         hint = interpret_failure(code, jr, interp_model=interp_model, mode=feedback_mode)
+        hint_per_iter.append(hint[:1000])
         history.append({
             "code": code,
             "judge": jr,
@@ -239,6 +259,8 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
         "iterations": len(status_per_iter),
         "status_per_iter": status_per_iter,
         "failure_type_per_iter": ftype_per_iter,
+        "tier_per_iter": tier_per_iter,
+        "hint_per_iter": hint_per_iter,
         "hint_helped_per_iter": hint_helped_per_iter,
         "final_code": final_code,
         "gen_error": gen_error or None,
@@ -256,11 +278,13 @@ def generate_refine(
     interp_model: str = DEFAULT_INTERP_MODEL,
     dataset: str = "simp",
     limit: int | None = None,
+    operators: list[str] | None = None,
     max_iters: int = 3,
     feedback_mode: str = "interpreted",
     output_subdir: str = "refine",
-    concurrency: int = 4,
+    concurrency: int = 2,
     gen_backend: str = "local",
+    gen_constrained: bool = True,
 ) -> dict:
     """Run the refine loop across operators and write per-operator trajectories and a summary.
 
@@ -270,13 +294,16 @@ def generate_refine(
     """
     interp_model = interp_model or DEFAULT_INTERP_MODEL
     backends.set_active_backend(gen_backend)
+    backends.set_constrained(gen_constrained)
     if gen_backend == "vllm":
         from . import gen_service
         gen_model = gen_service.GEN_MODEL_ID
     else:
         gen_model = llm_local._MODEL_ID
-    _operators.build_registry(dataset, limit)
-    operators = _operators.select_operators(limit)
+    # When `operators` is set, build_registry runs only those goldens (not the
+    # whole suite), so a single-operator run doesn't pay for all 166.
+    _operators.build_registry(dataset, limit, operators=operators)
+    op_ids = _operators.select_operators()
 
     _worker = functools.partial(
         _refine_one,
@@ -286,7 +313,7 @@ def generate_refine(
         feedback_mode=feedback_mode,
     )
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
-        rows = list(ex.map(_worker, operators))
+        rows = list(ex.map(_worker, op_ids))
 
     out_dir = Path(DATA_DIR) / output_subdir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -303,6 +330,28 @@ def generate_refine(
     helped = sum(1 for b in hint_events if b)
     help_rate = round(helped / opportunities, 4) if opportunities else None
 
+    def _tiers(r):
+        return r.get("tier_per_iter") or [0]
+
+    # Compile = reached tier >= 1 (loose call-accuracy equivalent for the 23.49% baseline).
+    compile_at_1 = sum(_tiers(r)[0] >= 1 for r in rows)
+    compiled_ever = sum(max(_tiers(r)) >= 1 for r in rows)
+
+    # Behavioral hardware-awareness: operators that produced a T4-illegal kernel
+    # (bf16/shared-mem/etc.) at any iteration.
+    hw_ops = sum(
+        1 for r in rows
+        if any(ft in HARDWARE_FAILURE_TYPES for ft in r["failure_type_per_iter"])
+    )
+    by_type: dict[str, int] = {}
+    for r in rows:
+        if r["passed"]:
+            continue
+        fts = r["failure_type_per_iter"]
+        ft = fts[-1] if fts else None
+        if ft:
+            by_type[ft] = by_type.get(ft, 0) + 1
+
     summary = {
         "n_operators": n,
         "gen_model": gen_model,
@@ -310,6 +359,8 @@ def generate_refine(
         "passed": passed,
         "pass_rate": round(passed / n, 4) if n else None,
         "pass_at_1": round(sum(r["status_per_iter"][:1] == ["pass"] for r in rows) / n, 4) if n else None,
+        "compile_at_1": round(compile_at_1 / n, 4) if n else None,
+        "compile_rate": round(compiled_ever / n, 4) if n else None,
         "mean_iterations": round(sum(r["iterations"] for r in rows) / n, 2) if n else None,
         "feedback_mode": feedback_mode,
         "hint_helped": {
@@ -317,6 +368,11 @@ def generate_refine(
             "opportunities": opportunities,
             "helped": helped,
             "help_rate": help_rate,
+        },
+        "failure_analysis": {
+            "by_type": by_type,
+            "hardware_failures": hw_ops,
+            "hardware_failure_rate": round(hw_ops / n, 4) if n else None,
         },
     }
     (out_dir / "refine_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))

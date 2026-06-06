@@ -49,12 +49,17 @@ Rules:
 
 # Common mistakes observed in Triton kernels
 _COMMON_MISTAKES = """
+Write a complete kernel body: load the inputs (with masks), compute, and
+tl.store the result. Each statement must make progress.
+
 Avoid:
 - Non power-of-two block sizes.
 - Missing boundary masks.
 - Out-of-bounds stores.
 - Shared memory overflows.
 - Generating explanations instead of code.
+- Repeating the same statement or emitting no-op / placeholder lines.
+- Leaving the kernel body empty.
 """
 
 # Expected output format — must match exactly what grammars/triton.ebnf emits.
@@ -63,6 +68,10 @@ Output exactly two top-level definitions, in this order, separated by one blank 
   1. The @triton.jit kernel function.
   2. A plain (undecorated) host wrapper function that allocates the output
      tensor(s) and launches the kernel with a grid, e.g. kernel_name[grid](...).
+
+Compute the launch grid as a tuple and launch the kernel, e.g.
+  grid = (triton.cdiv(n_elements, BLOCK_SIZE),)
+  kernel_name[grid](out, inp, n_elements, BLOCK_SIZE=BLOCK_SIZE)
 
 Strict format rules:
 - Do NOT write any import statements — torch, triton, and triton.language as tl

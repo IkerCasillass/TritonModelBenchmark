@@ -22,7 +22,7 @@ def build_messages(operator_id: str, history: list[dict], system_prompt: str, us
             {"role": "user", "content": user_prompt}]
     # initial request the model should see
 
-    recent_history = history[-3:]  # only show the last 3 attempts to avoid overwhelming the model
+    recent_history = history[-2:]  # last 2 attempts only — keep the prompt small under the 4096 ctx cap
 
     start_attempt = len(history) - len(recent_history) + 1
 
@@ -52,7 +52,7 @@ def build_messages(operator_id: str, history: list[dict], system_prompt: str, us
         if diagnostic:
             parts.append(f"Diagnostic message:\n{diagnostic}")
         if raw_stderr:
-            parts.append(f"Raw stderr:\n{str(raw_stderr)[:2000]}") # limit the length of raw stderr to avoid overwhelming the model
+            parts.append(f"Raw stderr:\n{str(raw_stderr)[:400]}")  # keep small: tight context budget
         
         hint = turn.get("hint")
         if hint:

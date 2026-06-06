@@ -1,12 +1,19 @@
 """TritonBench-T operator registry: loads operator specs and caches golden stdout."""
 from __future__ import annotations
 
+import builtins
 import json
 import os
 import sys
 import tempfile
 from pathlib import Path
 from typing import TypedDict
+
+# Operators whose name is a Python builtin (abs, sum, min, max, pow, ...) are
+# unreliable: the test calls `name(...)`, which silently resolves to the builtin
+# (often computing the right answer) when the model doesn't define it — a false
+# pass. Excluded in suite mode; explicit `operators=` targeting still allows them.
+_BUILTIN_NAMES = frozenset(dir(builtins))
 
 from .core import REPO_DIR
 from .kernels import _run_kernel_capture
@@ -110,6 +117,9 @@ def build_registry(dataset: str = "simp", limit: int | None = None,
     for item, test, fname in zip(items, tests, files):
         if want is not None and fname not in want:
             continue
+        if want is None and fname.removesuffix(".py") in _BUILTIN_NAMES:
+            dropped += 1
+            continue
         considered += 1
         if not fname or not test:
             dropped += 1
@@ -118,8 +128,23 @@ def build_registry(dataset: str = "simp", limit: int | None = None,
         if not gold_path.exists():
             dropped += 1
             continue
-        rc, stdout, _ = _run_kernel_capture(gold_path)
-        if rc != 0:
+        # Capture the reference output the SAME way judge_kernel runs candidates:
+        # gold code + "#"*146 + test. The bare gold file is solution code only —
+        # the test harness is what prints — so running it alone yields empty
+        # output and every non-crashing kernel would match trivially (false pass).
+        # The harness leaves outputs in `test_results` without printing; append a
+        # print so the reference output is actually captured for comparison.
+        combined = (gold_path.read_text() + "\n" + "#" * 146 + "\n" + test
+                    + "\nprint(test_results)\n")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as gf:
+            gtmp = gf.name
+            gf.write(combined)
+        try:
+            rc, stdout, _ = _run_kernel_capture(Path(gtmp))
+        finally:
+            Path(gtmp).unlink(missing_ok=True)
+        # Drop golden errors AND empty-output goldens (unjudgeable).
+        if rc != 0 or not stdout.strip():
             dropped += 1
             continue
         _OPERATOR_REGISTRY[fname] = {
