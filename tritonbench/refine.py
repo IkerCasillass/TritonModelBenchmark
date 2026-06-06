@@ -256,16 +256,26 @@ def generate_refine(
     interp_model: str = DEFAULT_INTERP_MODEL,
     dataset: str = "simp",
     limit: int | None = None,
+    operators: list[str] | None = None,
     max_iters: int = 5,
     feedback_mode: str = "interpreted",
     output_subdir: str = "refine",
     concurrency: int = 4,
 ) -> dict:
-    """Run the refine loop across operators and write per-operator trajectories and a summary."""
+    """Run the refine loop across operators and write per-operator trajectories and a summary.
+
+    ``operators``: optional list of operator ids to target (with or without
+    ``.py``); when set it overrides ``limit``-based selection so a run can focus
+    on a specific (e.g. easy) operator regardless of dataset order.
+    """
     interp_model = interp_model or DEFAULT_INTERP_MODEL
     gen_model = llm_local._MODEL_ID
-    _operators.build_registry(dataset, limit)
-    operators = _operators.select_operators(limit)
+    if operators:
+        _operators.build_registry(dataset, operators=operators)
+        operators = _operators.select_operators()
+    else:
+        _operators.build_registry(dataset, limit)
+        operators = _operators.select_operators(limit)
 
     _worker = functools.partial(
         _refine_one,
@@ -312,3 +322,18 @@ def generate_refine(
     data_volume.commit()
     print(json.dumps(summary, indent=2), flush=True)
     return summary
+
+
+@app.function(timeout=60 * 30)
+def list_operators(dataset: str = "simp", limit: int | None = None) -> list[tuple[str, bool]]:
+    """List operator ids (and whether each has a golden file), no GPU/golden runs.
+
+    Use it to pick a target for ``refine_loop --operator <id>`` — prefer simple
+    names (add/mul/relu/gelu) over ``fused_*`` for a first passing smoke test.
+    """
+    rows = _operators.list_operator_ids(dataset, limit)
+    for fname, has_gold in rows:
+        flag = "" if has_gold else "  (no gold file)"
+        print(f"{fname}{flag}", flush=True)
+    print(f"\n{len(rows)} operators", flush=True)
+    return rows
