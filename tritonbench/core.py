@@ -83,7 +83,9 @@ image = (
         "tqdm==4.66.5",
         "numpy<2",
         "openai>=1.50",
-        "psutil>=5.9",   # memory diagnostics
+        "psutil>=5.9",  
+        "xgrammar>=0.1.5", 
+        "transformers>=4.44" # memory diagnostics
     )
     .run_commands(f"git clone --depth 1 {TRITONBENCH_REPO} {REPO_DIR}")
     .run_commands(PATCH_CALL_ACC, PATCH_EXE_ACC, PATCH_PERF)

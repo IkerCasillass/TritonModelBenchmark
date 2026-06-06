@@ -1,0 +1,2 @@
+root ::= "@triton.jit" "\n"
+         "def kernel():"
