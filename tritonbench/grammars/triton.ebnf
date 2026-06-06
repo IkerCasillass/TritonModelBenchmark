@@ -16,7 +16,13 @@
 
 root ::= program
 
-program ::= decorator "\n" function_def
+# A complete generation is the @triton.jit kernel followed by a plain (undecorated)
+# host wrapper that allocates outputs and launches the kernel via `name[grid](...)`.
+# The two are separated by a blank line. Imports are injected deterministically in
+# the generator (engine._IMPORTS), not emitted here. The grammar keeps both bodies
+# parseable; it cannot enforce that the wrapper's name/signature matches the test —
+# that is steered by the prompt and caught by the refine loop.
+program ::= decorator "\n" function_def "\n" function_def
 
 # ── Decorator ─────────────────────────────────────────────────────────────────
 
@@ -186,11 +192,19 @@ primary ::=
     | number
     | string
     | list_literal
+    | tuple_literal
     | "(" expr ")"
     | identifier
 
 # [BLOCK_M, BLOCK_N] shapes for tl.zeros / tl.full / tl.broadcast_to
 list_literal ::= "[" (expr ("," " " expr){0,31})? "]"
+
+# Tuple literals — primarily launch grids: (triton.cdiv(n, BLOCK),) and (gx, gy).
+# A trailing comma distinguishes the 1-element tuple (a,) from a parenthesised
+# expression (a); both forms are listed before "(" expr ")" in primary.
+tuple_literal ::=
+      "(" expr "," ")"
+    | "(" expr ("," " " expr){1,31} ")"
 
 # ── Terminals ─────────────────────────────────────────────────────────────────
 

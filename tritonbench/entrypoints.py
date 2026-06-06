@@ -10,7 +10,7 @@ from .generate import generate_predictions
 from .evaluate import evaluate
 from .mutate import generate_mutations
 from .awareness import build_awareness_set, hardware_eval
-from .refine import generate_refine, judge_kernel
+from .refine import generate_refine, judge_kernel, list_operators
 from .operators import build_registry, select_operators, get_operator
 
 def _upload_local_predictions(local_path: Path) -> str:
@@ -215,6 +215,7 @@ def refine_loop(
     gen_model: str = DEFAULT_MODEL,
     interp_model: str = DEFAULT_INTERP_MODEL,
     limit: int = 0,
+    operator: str = "",
     max_iters: int = 5,
     feedback_mode: str = "interpreted",
     output_subdir: str = "refine",
@@ -224,16 +225,35 @@ def refine_loop(
 
     Usage:
         modal run modal_app.py::refine_loop --gen-model "<small-slug>" --limit 3
+        modal run modal_app.py::refine_loop --operator add          # target one op
+        modal run modal_app.py::refine_loop --operator "add,relu"   # target several
+
+    ``operator`` (comma-separated ids, with or without ``.py``) targets specific
+    operators regardless of dataset order, overriding ``limit``. Discover ids with
+    ``modal run modal_app.py::list_operators_only``.
     """
+    operators = [o.strip() for o in operator.split(",") if o.strip()] or None
     summary = generate_refine.with_options(gpu=gpu).remote(
         gen_model=gen_model,
         interp_model=interp_model,
         limit=limit if limit > 0 else None,
+        operators=operators,
         max_iters=max_iters,
         feedback_mode=feedback_mode,
         output_subdir=output_subdir,
     )
     print(json.dumps(summary, indent=2))
+
+
+@app.local_entrypoint()
+def list_operators_only(dataset: str = "simp", limit: int = 0):
+    """Print operator ids (and whether each has a golden file). No GPU.
+
+    Usage:
+        modal run modal_app.py::list_operators_only
+        modal run modal_app.py::list_operators_only --limit 40
+    """
+    list_operators.remote(dataset=dataset, limit=limit if limit > 0 else None)
 
 
 _BF16_KERNEL = """\

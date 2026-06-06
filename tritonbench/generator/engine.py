@@ -7,13 +7,19 @@ from ..operators import get_instruction
 from .prompting import build_system_prompt, build_user_prompt
 from .refinement import build_messages
 
+# Fixed boilerplate every generated module needs. The grammar emits only kernel
+# logic (no imports) — these are identical for every operator, so they are
+# injected deterministically here rather than spent on grammar tokens. The judge
+# runs exactly what generate_kernel returns; it does not (and must not) patch code.
+_IMPORTS = "import torch\nimport triton\nimport triton.language as tl\n\n\n"
+
 
 def generate_kernel(operator_id: str, history: list[dict]) -> str:
     """Generate (or revise) Triton source for ``operator_id``.
 
     Build messages from ``prompting`` + ``refinement``, call the model via
-    grammar-constrained Qwen, and return validated source via
-    ``llm._extract_code`` / ``_is_valid_python``.
+    grammar-constrained Qwen, validate the generated logic, then prepend the
+    fixed import header so the return value is a *complete, runnable module*.
     ``history`` carries prior attempts and their feedback.
     """
     try:
@@ -36,11 +42,13 @@ def generate_kernel(operator_id: str, history: list[dict]) -> str:
         raise ValueError(
             f"LLM returned an empty code payload for {operator_id}: {raw[:800]!r}"
         )
+    # Validate the generated logic itself — a truncated kernel fails here and is
+    # surfaced as a generation error for the refine loop to retry.
     if not _is_valid_python(code):
         raise ValueError(
             f"LLM returned invalid Python for {operator_id}: {code[:800]!r}"
         )
-    return code
+    return _IMPORTS + code.lstrip()
 
 
 def stub_evaluator(generated_code: str, operator_id: str) -> dict:
