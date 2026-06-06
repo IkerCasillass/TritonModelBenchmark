@@ -22,7 +22,7 @@ from . import llm_local
 from . import operators as _operators
 from .core import (DATA_DIR, DEFAULT_GPU, DEFAULT_INTERP_MODEL, DEFAULT_MODEL,
                    LLM_SECRET_NAME, T4_FAILURE_HINTS, app, data_volume)
-from .generator import generate_kernel
+from .generator import backends, generate_kernel
 from .kernels import _classify_kernel_failure, _run_kernel_capture
 
 
@@ -178,7 +178,7 @@ def _progress_tier(jr: JudgeResult) -> int:
 
 
 def _refine_one(operator_id: str, gen_model: str, interp_model: str,
-                max_iters: int = 5, feedback_mode: str = "interpreted") -> dict:
+                max_iters: int = 3, feedback_mode: str = "interpreted") -> dict:
     history: list[dict] = []
     status_per_iter: list[str] = []
     ftype_per_iter: list[str | None] = []
@@ -256,14 +256,20 @@ def generate_refine(
     interp_model: str = DEFAULT_INTERP_MODEL,
     dataset: str = "simp",
     limit: int | None = None,
-    max_iters: int = 5,
+    max_iters: int = 3,
     feedback_mode: str = "interpreted",
     output_subdir: str = "refine",
     concurrency: int = 4,
+    gen_backend: str = "local",
 ) -> dict:
     """Run the refine loop across operators and write per-operator trajectories and a summary."""
     interp_model = interp_model or DEFAULT_INTERP_MODEL
-    gen_model = llm_local._MODEL_ID
+    backends.set_active_backend(gen_backend)
+    if gen_backend == "vllm":
+        from . import gen_service
+        gen_model = gen_service.GEN_MODEL_ID
+    else:
+        gen_model = llm_local._MODEL_ID
     _operators.build_registry(dataset, limit)
     operators = _operators.select_operators(limit)
 
