@@ -333,9 +333,12 @@ def generate_refine(
     def _tiers(r):
         return r.get("tier_per_iter") or [0]
 
-    # Compile = reached tier >= 1 (loose call-accuracy equivalent for the 23.49% baseline).
+    # Compile = reached tier >= 1 (kernel compiled; failed, if at all, at runtime).
     compile_at_1 = sum(_tiers(r)[0] >= 1 for r in rows)
     compiled_ever = sum(max(_tiers(r)) >= 1 for r in rows)
+
+    ran_at_1 = sum(_tiers(r)[0] >= 2 for r in rows)
+    ran_ever = sum(max(_tiers(r)) >= 2 for r in rows)
 
     # Behavioral hardware-awareness: operators that produced a T4-illegal kernel
     # (bf16/shared-mem/etc.) at any iteration.
@@ -361,6 +364,9 @@ def generate_refine(
         "pass_at_1": round(sum(r["status_per_iter"][:1] == ["pass"] for r in rows) / n, 4) if n else None,
         "compile_at_1": round(compile_at_1 / n, 4) if n else None,
         "compile_rate": round(compiled_ever / n, 4) if n else None,
+        # TritonBench-comparable metric (kernel runs without crashing).
+        "ran_at_1": round(ran_at_1 / n, 4) if n else None,
+        "ran_rate": round(ran_ever / n, 4) if n else None,
         "mean_iterations": round(sum(r["iterations"] for r in rows) / n, 2) if n else None,
         "feedback_mode": feedback_mode,
         "hint_helped": {

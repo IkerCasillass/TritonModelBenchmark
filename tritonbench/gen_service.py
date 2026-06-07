@@ -97,14 +97,18 @@ class ConstrainedGenerator:
         from vllm import SamplingParams
 
         tokenizer = self._llm.get_tokenizer()
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        try:
+            prompt = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            prompt = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
 
-        # repetition_penalty breaks greedy degenerate loops (a CFG can't stop a
-        # model repeating a valid statement).
         kwargs = {"temperature": 0.0, "max_tokens": max_new_tokens,
-                  "repetition_penalty": 1.3}
+                  "repetition_penalty": 1.05}
         if constrained:
             kwargs.update(self._structured_kwargs())
         out = self._llm.generate([prompt], SamplingParams(**kwargs))
