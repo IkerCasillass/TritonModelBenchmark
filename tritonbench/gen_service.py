@@ -37,6 +37,8 @@ gen_image = (
     image=gen_image,
     volumes={"/root/.cache/huggingface": _hf_cache},
     timeout=60 * 10,   # hard ceiling: no single generation should run longer
+    # Keep the container warm between operators within a run
+    scaledown_window=300,
 )
 # One warm container batches the loop's concurrent generations.
 @modal.concurrent(max_inputs=16)
@@ -97,14 +99,18 @@ class ConstrainedGenerator:
         from vllm import SamplingParams
 
         tokenizer = self._llm.get_tokenizer()
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
+        try:
+            prompt = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            prompt = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
 
-        # repetition_penalty breaks greedy degenerate loops (a CFG can't stop a
-        # model repeating a valid statement).
         kwargs = {"temperature": 0.0, "max_tokens": max_new_tokens,
-                  "repetition_penalty": 1.3}
+                  "repetition_penalty": 1.05}
         if constrained:
             kwargs.update(self._structured_kwargs())
         out = self._llm.generate([prompt], SamplingParams(**kwargs))

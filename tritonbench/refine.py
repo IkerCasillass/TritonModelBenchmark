@@ -190,6 +190,62 @@ def _progress_tier(jr: JudgeResult) -> int:
     return 0
 
 
+def _measure_speedups(passing: list[tuple[str, str]]) -> dict:
+    """Benchmark passing kernels against the PyTorch reference; aggregate speedups.
+
+    Reuses the normal benchmark's Phase-3 machinery (``perf_T/write_file.py`` ->
+    per-op perf scripts -> ``2_efficiency.py``) so the numbers are directly
+    comparable to its ``mean_speedup``. Each candidate is written in the call_acc
+    file format (``code + sep + test``) under its operator filename, which the perf
+    scripts match to the golden for input shapes. Kernels that fail to run are
+    skipped by the scripts. Returns ``_speedup_stats`` over the per-kernel ratios
+    (empty stats when nothing passed). Speedup = pytorch_time / triton_time, so a
+    ratio > 1 is faster than PyTorch.
+    """
+    import subprocess
+    import sys
+    import tempfile
+
+    from .core import KERNEL_TIMEOUT, REPO_DIR
+    from .evaluate import _parse_per_kernel_speedups, _speedup_stats
+    from .kernels import _set_mem_limit
+
+    if not passing:
+        return _speedup_stats([])
+
+    perf_root = f"{REPO_DIR}/performance_metrics/perf_T"
+    with tempfile.TemporaryDirectory() as in_dir, tempfile.TemporaryDirectory() as perf_dir:
+        in_path = Path(in_dir)
+        for operator_id, code in passing:
+            test = _operators.get_operator(operator_id)["test_code"]
+            (in_path / operator_id).write_text(code + "\n" + "#" * 146 + "\n" + test)
+
+        # Generate the per-op perf scripts from the candidate folder.
+        subprocess.run(
+            [sys.executable, "run_bench/write_file.py",
+             "--input_folder_path", str(in_path), "--results_path", perf_dir],
+            cwd=perf_root, capture_output=True, text=True,
+        )
+        # Run each perf script in isolation (timeout + memory ceiling); a kernel
+        # that fails to run is skipped and simply contributes no ratio.
+        for script in sorted(Path(perf_dir).rglob("*.py")):
+            try:
+                subprocess.run(
+                    [sys.executable, str(script)], cwd=perf_root,
+                    timeout=KERNEL_TIMEOUT, preexec_fn=_set_mem_limit,
+                    capture_output=True, text=True,
+                )
+            except Exception:  # noqa: BLE001 — one bad kernel must not abort the phase
+                pass
+        # Compare against the golden timings; parse per-kernel speedup ratios.
+        eff = subprocess.run(
+            [sys.executable, "2_efficiency.py", "--gen_folder", perf_dir],
+            cwd=f"{REPO_DIR}/EVAL/eval_T", capture_output=True, text=True,
+        )
+        ratios = _parse_per_kernel_speedups(eff.stdout)
+    return _speedup_stats(ratios)
+
+
 def _refine_one(operator_id: str, gen_model: str, interp_model: str,
                 max_iters: int = 3, feedback_mode: str = "interpreted") -> dict:
     history: list[dict] = []
@@ -333,9 +389,12 @@ def generate_refine(
     def _tiers(r):
         return r.get("tier_per_iter") or [0]
 
-    # Compile = reached tier >= 1 (loose call-accuracy equivalent for the 23.49% baseline).
+    # Compile = reached tier >= 1 (kernel compiled; failed, if at all, at runtime).
     compile_at_1 = sum(_tiers(r)[0] >= 1 for r in rows)
     compiled_ever = sum(max(_tiers(r)) >= 1 for r in rows)
+
+    ran_at_1 = sum(_tiers(r)[0] >= 2 for r in rows)
+    ran_ever = sum(max(_tiers(r)) >= 2 for r in rows)
 
     # Behavioral hardware-awareness: operators that produced a T4-illegal kernel
     # (bf16/shared-mem/etc.) at any iteration.
@@ -352,6 +411,11 @@ def generate_refine(
         if ft:
             by_type[ft] = by_type.get(ft, 0) + 1
 
+    # Speedup vs PyTorch over passing kernels, via the benchmark's own perf phase.
+    passing = [(r["operator_id"], r["final_code"]) for r in rows
+               if r["passed"] and r.get("final_code")]
+    speedup = _measure_speedups(passing)
+
     summary = {
         "n_operators": n,
         "gen_model": gen_model,
@@ -361,6 +425,9 @@ def generate_refine(
         "pass_at_1": round(sum(r["status_per_iter"][:1] == ["pass"] for r in rows) / n, 4) if n else None,
         "compile_at_1": round(compile_at_1 / n, 4) if n else None,
         "compile_rate": round(compiled_ever / n, 4) if n else None,
+        # TritonBench-comparable metric (kernel runs without crashing).
+        "ran_at_1": round(ran_at_1 / n, 4) if n else None,
+        "ran_rate": round(ran_ever / n, 4) if n else None,
         "mean_iterations": round(sum(r["iterations"] for r in rows) / n, 2) if n else None,
         "feedback_mode": feedback_mode,
         "hint_helped": {
@@ -374,6 +441,9 @@ def generate_refine(
             "hardware_failures": hw_ops,
             "hardware_failure_rate": round(hw_ops / n, 4) if n else None,
         },
+        # Perf over passing kernels (geomean/median/min/max/pct_faster_than_pytorch
+        # + n_kernels_measured), comparable to the benchmark's mean_speedup.
+        "speedup": speedup,
     }
     (out_dir / "refine_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     data_volume.commit()

@@ -52,6 +52,12 @@ _COMMON_MISTAKES = """
 Write a complete kernel body: load the inputs (with masks), compute, and
 tl.store the result. Each statement must make progress.
 
+Use only real Triton/PyTorch APIs. Common valid ops: tl.load, tl.store,
+tl.arange, tl.program_id, tl.where, tl.maximum, tl.minimum, tl.sum, tl.exp,
+tl.sqrt; torch.empty_like, triton.cdiv, triton.next_power_of_2. Do not invent
+functions and do not define your own helper functions — write only the kernel and
+the single host wrapper.
+
 Avoid:
 - Non power-of-two block sizes.
 - Missing boundary masks.
@@ -60,6 +66,31 @@ Avoid:
 - Generating explanations instead of code.
 - Repeating the same statement or emitting no-op / placeholder lines.
 - Leaving the kernel body empty.
+"""
+
+# A complete, correct reference pair. The grammar admits structure but not
+# semantics; a worked example anchors the real API surface, masking, grid/launch,
+# and the kernel/wrapper naming convention far better than rules alone. No imports
+# (the grammar omits them; engine._IMPORTS injects them).
+_EXAMPLE = """
+Example — for a description of an elementwise op `foo(a, b)` returning `a + b`:
+
+@triton.jit
+def foo_kernel(a_ptr, b_ptr, out_ptr, n_elements, BLOCK_SIZE: tl.constexpr):
+    pid = tl.program_id(0)
+    offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+    mask = offsets < n_elements
+    a = tl.load(a_ptr + offsets, mask=mask, other=0.0)
+    b = tl.load(b_ptr + offsets, mask=mask, other=0.0)
+    tl.store(out_ptr + offsets, a + b, mask=mask)
+
+def foo(a, b):
+    n_elements = a.numel()
+    BLOCK_SIZE = 1024
+    grid = (triton.cdiv(n_elements, BLOCK_SIZE),)
+    out = torch.empty_like(a)
+    foo_kernel[grid](a, b, out, n_elements, BLOCK_SIZE=BLOCK_SIZE)
+    return out
 """
 
 # Expected output format — must match exactly what grammars/triton.ebnf emits.
@@ -94,6 +125,7 @@ def build_system_prompt() -> str:
         _CONSTRAINED_HEADER,
         _HARDWARE_RULES,
         _COMMON_MISTAKES,
+        _EXAMPLE,
         _OUTPUT_RULES,
     ])
 
@@ -102,10 +134,11 @@ def build_user_prompt(operator_id: str, instruction: str) -> str:
     """
     Builds the user prompt for a specific TritonBench operator.
     """
+    name = operator_id.removesuffix(".py")
     return (
         f"Operator: {operator_id}\n\n"
         f"{instruction}\n\n"
-        "Generate the Triton kernel and a host wrapper that matches the "
-        "described function signature."
+        f"Generate the Triton kernel and a host wrapper. The wrapper function MUST "
+        f"be named exactly `{name}` and match the described function signature."
     )
 
