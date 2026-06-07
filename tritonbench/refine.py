@@ -221,29 +221,52 @@ def _measure_speedups(passing: list[tuple[str, str]]) -> dict:
             (in_path / operator_id).write_text(code + "\n" + "#" * 146 + "\n" + test)
 
         # Generate the per-op perf scripts from the candidate folder.
-        subprocess.run(
+        write_proc = subprocess.run(
             [sys.executable, "run_bench/write_file.py",
              "--input_folder_path", str(in_path), "--results_path", perf_dir],
             cwd=perf_root, capture_output=True, text=True,
         )
+        print(f"[speedup] write_file.py exit={write_proc.returncode} for "
+              f"{len(passing)} passing kernels", flush=True)
+        if write_proc.stderr.strip():
+            print("[speedup] write_file stderr:", write_proc.stderr[-500:], flush=True)
+
+        # Locate the generated scripts. write_file.py usually writes them under
+        # --results_path, but some versions write into perf_root/tmp instead;
+        # fall back to that path (mirrors evaluate.py's Phase 3).
+        scripts = sorted(Path(perf_dir).rglob("*.py"))
+        if not scripts:
+            scripts = sorted(Path(perf_root).glob("tmp/*.py"))
+        print(f"[speedup] found {len(scripts)} perf scripts", flush=True)
+
         # Run each perf script in isolation (timeout + memory ceiling); a kernel
         # that fails to run is skipped and simply contributes no ratio.
-        for script in sorted(Path(perf_dir).rglob("*.py")):
+        completed = 0
+        for script in scripts:
             try:
-                subprocess.run(
+                proc = subprocess.run(
                     [sys.executable, str(script)], cwd=perf_root,
                     timeout=KERNEL_TIMEOUT, preexec_fn=_set_mem_limit,
                     capture_output=True, text=True,
                 )
+                completed += proc.returncode == 0
             except Exception:  # noqa: BLE001 — one bad kernel must not abort the phase
                 pass
+        print(f"[speedup] {completed}/{len(scripts)} perf scripts completed", flush=True)
+        if completed == 0:
+            return _speedup_stats([])
+
         # Compare against the golden timings; parse per-kernel speedup ratios.
         eff = subprocess.run(
             [sys.executable, "2_efficiency.py", "--gen_folder", perf_dir],
             cwd=f"{REPO_DIR}/EVAL/eval_T", capture_output=True, text=True,
         )
         ratios = _parse_per_kernel_speedups(eff.stdout)
-    return _speedup_stats(ratios)
+        print(f"[speedup] 2_efficiency exit={eff.returncode}, parsed "
+              f"{len(ratios)} ratios", flush=True)
+        if not ratios and eff.stdout.strip():
+            print("[speedup] 2_efficiency stdout tail:", eff.stdout[-500:], flush=True)
+        return _speedup_stats(ratios)
 
 
 def _refine_one(operator_id: str, gen_model: str, interp_model: str,
