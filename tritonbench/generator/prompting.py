@@ -58,6 +58,14 @@ tl.sqrt; torch.empty_like, triton.cdiv, triton.next_power_of_2. Do not invent
 functions and do not define your own helper functions — write only the kernel and
 the single host wrapper.
 
+Match the operator's FULL semantics. For binary elementwise ops (add, sub, mul,
+div, ...) the second operand may be a Python scalar OR a tensor. A kernel can only
+tl.load from a pointer, so in the wrapper promote a scalar to a tensor BEFORE
+launching, so the kernel always receives real pointers:
+    if not isinstance(other, torch.Tensor):
+        other = torch.full_like(input, other)
+If the signature has an `alpha` argument, apply it (e.g. input - alpha * other).
+
 Avoid:
 - Non power-of-two block sizes.
 - Missing boundary masks.

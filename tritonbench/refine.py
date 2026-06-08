@@ -114,12 +114,15 @@ def judge_kernel(generated_code: str, operator_id: str) -> JudgeResult:
 
 
 def interpret_failure(generated_code: str, jr: JudgeResult, *,
-                      interp_model: str = "", mode: str = "interpreted") -> str:
+                      interp_model: str = "", mode: str = "interpreted",
+                      instruction: str = "") -> str:
     """Return an actionable fix-hint for a failure.
 
     ``raw`` and ``category`` modes carry no hint (feedback is built from the
     JudgeResult fields directly). ``interpreted`` uses a deterministic lookup.
     ``grounded`` calls the LLM and falls back to the deterministic hint on any error.
+    ``instruction`` is the operator's task description; grounded uses it so the
+    debugger can catch semantic bugs (e.g. an unapplied ``alpha``), not just crashes.
     """
     if jr["correct"] or mode in ("raw", "category"):
         return ""
@@ -136,13 +139,17 @@ def interpret_failure(generated_code: str, jr: JudgeResult, *,
     diagnostic = (jr["diagnostic"] or "").strip()
     stderr_tail = stderr[-2000:] if stderr else ""
     evidence = stderr_tail or diagnostic
+    # For a numerical_mismatch the kernel runs but computes the wrong values, so the
+    # error text alone is useless without knowing the intended semantics.
+    spec = f"What the kernel should compute:\n{instruction[:1500]}\n\n" if instruction else ""
 
     messages = [
         {
             "role": "system",
             "content": (
                 "You are a Triton (OpenAI Triton) GPU-kernel debugging assistant. "
-                "Given a failure category, the T4-specific hint, stderr/diagnostic, and the kernel code, "
+                "Given the intended operator semantics, a failure category, the T4-specific hint, "
+                "stderr/diagnostic, and the kernel code, "
                 "suggest one concrete, kernel-specific change that will likely fix the issue on an NVIDIA T4 (sm_75). "
                 "Be precise and actionable. Output only the fix/instruction, no preamble."
             ),
@@ -150,12 +157,14 @@ def interpret_failure(generated_code: str, jr: JudgeResult, *,
         {
             "role": "user",
             "content": (
+                f"{spec}"
                 f"Failure category: {failure_type}\n"
                 f"Category hint: {base_hint}\n"
                 f"Stderr/diagnostic (tail):\n{evidence}\n\n"
                 f"Kernel code:\n{generated_code}\n\n"
                 "Task: Provide one concrete edit or small set of edits to this kernel to address the failure. "
                 "Mention exact tl.* ops, masks, types, and constants to change. "
+                "For a numerical mismatch, identify which part of the math/indexing is wrong vs the intended semantics. "
                 "Do not restate the category; do not propose rewrites unrelated to the error."
             ),
         },
@@ -170,13 +179,19 @@ def interpret_failure(generated_code: str, jr: JudgeResult, *,
 
 
 def _build_feedback(jr: JudgeResult, hint: str, feedback_mode: str) -> str:
+    ftype = jr["failure_type"]
     if feedback_mode == "raw":
         return f"The kernel failed on the target GPU. Raw error:\n{jr['raw_stderr'] or jr['diagnostic']}"
     if feedback_mode == "category":
-        return f"The kernel failed on the target GPU with failure category: {jr['failure_type']}."
-    if feedback_mode in ("interpreted", "grounded"):
-        return f"The kernel failed on the target GPU ({jr['failure_type']}). {hint}"
-    return f"The kernel failed on the target GPU ({jr['failure_type']}). {hint}"
+        return f"The kernel failed on the target GPU with failure category: {ftype}."
+    if feedback_mode == "interpreted":
+        return f"The kernel failed on the target GPU ({ftype}). {hint}"
+    # grounded: the LLM hint PLUS the concrete error it was derived from, so the
+    # generator revises against specifics (e.g. the exact expected-vs-got values)
+    # rather than a paraphrase.
+    evidence = (jr["diagnostic"] or "").strip() or (jr["raw_stderr"] or "").strip()[-800:]
+    ev = f"\nObserved error: {evidence}" if evidence else ""
+    return f"The kernel failed on the target GPU ({ftype}). {hint}{ev}"
 
 
 def _progress_tier(jr: JudgeResult) -> int:
@@ -276,8 +291,18 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
     ftype_per_iter: list[str | None] = []
     tier_per_iter: list[int] = []
     hint_per_iter: list[str] = []
+    # Per-iteration error evidence (stderr tail or diagnostic) so failures are
+    # diagnosable from the trajectory alone — without it the loop is a black box.
+    stderr_per_iter: list[str] = []
     final_code = ""
     gen_error = ""
+
+    # Operator semantics, fed to the grounded debugger so it can reason about
+    # numerical mismatches (wrong math), not just crashes.
+    try:
+        instruction = _operators.get_instruction(operator_id)
+    except KeyError:
+        instruction = operator_id
 
     deadline = time.monotonic() + OPERATOR_BUDGET
     for _ in range(max_iters):
@@ -291,6 +316,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
             ftype_per_iter.append("generation_error")
             tier_per_iter.append(0)
             hint_per_iter.append("")
+            stderr_per_iter.append(gen_error[-2000:])
             history.append({
                 "code": "",
                 "judge": {"compiled": False, "ran": False, "correct": False,
@@ -309,10 +335,12 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
         status_per_iter.append("pass" if jr["correct"] else "fail")
         ftype_per_iter.append(jr["failure_type"])
         tier_per_iter.append(_progress_tier(jr))
+        stderr_per_iter.append(((jr["raw_stderr"] or jr["diagnostic"] or "")[-2000:]))
         if jr["correct"]:
             hint_per_iter.append("")
             break
-        hint = interpret_failure(code, jr, interp_model=interp_model, mode=feedback_mode)
+        hint = interpret_failure(code, jr, interp_model=interp_model,
+                                 mode=feedback_mode, instruction=instruction)
         hint_per_iter.append(hint[:1000])
         history.append({
             "code": code,
@@ -341,6 +369,7 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
         "tier_per_iter": tier_per_iter,
         "hint_per_iter": hint_per_iter,
         "hint_helped_per_iter": hint_helped_per_iter,
+        "stderr_per_iter": stderr_per_iter,
         "final_code": final_code,
         "gen_error": gen_error or None,
     }
