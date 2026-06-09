@@ -58,6 +58,14 @@ tl.sqrt; torch.empty_like, triton.cdiv, triton.next_power_of_2. Do not invent
 functions and do not define your own helper functions — write only the kernel and
 the single host wrapper.
 
+Match the operator's FULL semantics. For binary elementwise ops (add, sub, mul,
+div, ...) the second operand may be a Python scalar OR a tensor. A kernel can only
+tl.load from a pointer, so in the wrapper promote a scalar to a tensor BEFORE
+launching, so the kernel always receives real pointers:
+    if not isinstance(other, torch.Tensor):
+        other = torch.full_like(input, other)
+If the signature has an `alpha` argument, apply it (e.g. input - alpha * other).
+
 Avoid:
 - Non power-of-two block sizes.
 - Missing boundary masks.
@@ -130,11 +138,22 @@ def build_system_prompt() -> str:
     ])
 
 
+# Cap the instruction so a long, assert-heavy operator spec can't crowd out the
+# generation budget. With max_model_len=4096 and max_tokens=2048, the whole prompt
+# (832-tok system + instruction + refinement history) must leave room for the
+# output; an unbounded instruction is the main variable-length offender. ~2400
+# chars ~= 650 tokens keeps the description while dropping trailing boilerplate.
+_MAX_INSTRUCTION_CHARS = 2400
+
+
 def build_user_prompt(operator_id: str, instruction: str) -> str:
     """
     Builds the user prompt for a specific TritonBench operator.
     """
     name = operator_id.removesuffix(".py")
+    instruction = instruction.strip()
+    if len(instruction) > _MAX_INSTRUCTION_CHARS:
+        instruction = instruction[:_MAX_INSTRUCTION_CHARS] + "\n[... description truncated ...]"
     return (
         f"Operator: {operator_id}\n\n"
         f"{instruction}\n\n"
