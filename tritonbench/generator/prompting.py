@@ -138,11 +138,22 @@ def build_system_prompt() -> str:
     ])
 
 
+# Cap the instruction so a long, assert-heavy operator spec can't crowd out the
+# generation budget. With max_model_len=4096 and max_tokens=2048, the whole prompt
+# (832-tok system + instruction + refinement history) must leave room for the
+# output; an unbounded instruction is the main variable-length offender. ~2400
+# chars ~= 650 tokens keeps the description while dropping trailing boilerplate.
+_MAX_INSTRUCTION_CHARS = 2400
+
+
 def build_user_prompt(operator_id: str, instruction: str) -> str:
     """
     Builds the user prompt for a specific TritonBench operator.
     """
     name = operator_id.removesuffix(".py")
+    instruction = instruction.strip()
+    if len(instruction) > _MAX_INSTRUCTION_CHARS:
+        instruction = instruction[:_MAX_INSTRUCTION_CHARS] + "\n[... description truncated ...]"
     return (
         f"Operator: {operator_id}\n\n"
         f"{instruction}\n\n"

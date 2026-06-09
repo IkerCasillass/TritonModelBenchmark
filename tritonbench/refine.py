@@ -341,7 +341,12 @@ def _refine_one(operator_id: str, gen_model: str, interp_model: str,
             break
         hint = interpret_failure(code, jr, interp_model=interp_model,
                                  mode=feedback_mode, instruction=instruction)
-        hint_per_iter.append(hint[:1000])
+        # Bound the (LLM-generated, grounded) hint so the refinement prompt stays
+        # under the 4096-token context — an over-long hint was the only thing that
+        # pushed an op past it, and raising max_model_len crashes this model's
+        # GDN warmup. ~1200 chars is plenty for an actionable fix.
+        hint = hint[:1200]
+        hint_per_iter.append(hint)
         history.append({
             "code": code,
             "judge": jr,

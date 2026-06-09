@@ -6,6 +6,7 @@ inside vLLM as a guided-decoding backend. The judge still runs on the eval GPU
 """
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import modal
@@ -40,7 +41,8 @@ gen_image = (
     # Keep the container warm between operators within a run
     scaledown_window=300,
 )
-# One warm container batches the loop's concurrent generations.
+# One warm container accepts the loop's concurrent requests; generation itself is
+# serialized by _gen_lock (vLLM offline engine is not thread-safe).
 @modal.concurrent(max_inputs=16)
 class ConstrainedGenerator:
     @modal.enter()
@@ -48,11 +50,21 @@ class ConstrainedGenerator:
         from vllm import LLM
 
         # max_model_len caps the context: the model defaults to 256K, whose KV
-        # cache won't fit alongside the weights. Kernels + prompts need only a few K.
+        # cache won't fit alongside the weights. Keep at 4096 — raising it to 8192
+        # made this model's GDN (mamba linear-attention) prefill-warmup autotune
+        # over longer sequences, which blew past the 600s input timeout and
+        # crashed the engine core. The rare 4097-token overflow is handled by
+        # bounding the refinement prompt instead (see refinement.build_messages).
         self._llm = LLM(model=GEN_MODEL_ID, dtype="float16", gpu_memory_utilization=0.9,
                         enforce_eager=True, max_model_len=4096)
         self._grammar = _GRAMMAR_PATH.read_text(encoding="utf-8")
         self._struct_api = self._probe_structured_api(self._grammar)
+        # vLLM's offline LLM.generate is NOT safe to call from multiple threads on
+        # one engine. modal.concurrent runs concurrent inputs as threads in this
+        # one container, so without serialization two operators' requests interleave
+        # and outputs get returned to the WRONG caller (observed: `sqrt` getting a
+        # `sigmoid_argmax` kernel, `grid_sample` getting `svd`, etc.). Serialize.
+        self._gen_lock = threading.Lock()
 
     @staticmethod
     def _probe_structured_api(grammar: str) -> str | None:
@@ -109,9 +121,15 @@ class ConstrainedGenerator:
                 messages, tokenize=False, add_generation_prompt=True,
             )
 
+        # seed fixes vLLM's sampling RNG so re-runs are comparable — greedy alone
+        # isn't bit-reproducible across batching, which made single-run A/Bs noisy
+        # (e.g. a trivial op flipping PASS -> code_error between runs).
         kwargs = {"temperature": 0.0, "max_tokens": max_new_tokens,
-                  "repetition_penalty": 1.05}
+                  "repetition_penalty": 1.05, "seed": 0}
         if constrained:
             kwargs.update(self._structured_kwargs())
-        out = self._llm.generate([prompt], SamplingParams(**kwargs))
+        # Serialize the engine call: concurrent self._llm.generate() corrupts the
+        # request→response mapping (see _gen_lock note in _load).
+        with self._gen_lock:
+            out = self._llm.generate([prompt], SamplingParams(**kwargs))
         return out[0].outputs[0].text
